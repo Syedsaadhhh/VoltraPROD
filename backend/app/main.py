@@ -258,7 +258,13 @@ async def get_catalog_assets() -> Dict[str, Any]:
     res = await find_sound_candidates(limit=50)
     return {
         "status": res.get("status", "success"),
-        "assets": res.get("candidates", []),
+        "assets": [
+            {**row, "id": row["asset_id"],
+             "source_description": row.get("source_description") or row["asset_id"].removeprefix("asset_").replace("_", " "),
+             "tags": row.get("tags") or []}
+            for row in res.get("candidates", [])
+            if isinstance(row, dict) and row.get("asset_id")
+        ],
         "count": res.get("count", 0),
     }
 
