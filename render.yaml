@@ -1,0 +1,41 @@
+# Render deployment configuration for Sound Rehearsal
+services:
+  - type: web
+    name: sound-rehearsal
+    runtime: docker
+    plan: free
+    dockerfilePath: Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: ENVIRONMENT
+        value: production
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: CLICKHOUSE_HOST
+        sync: false
+      - key: CLICKHOUSE_PORT
+        value: 8443
+      - key: CLICKHOUSE_USER
+        value: default
+      - key: CLICKHOUSE_PASSWORD
+        sync: false
+      - key: CLICKHOUSE_DATABASE
+        value: default
+      - key: CLICKHOUSE_SECURE
+        value: true
+      - key: CLICKHOUSE_VERIFY
+        value: true
+      - key: CLICKHOUSE_ALLOW_WRITE_ACCESS
+        value: false
+      - key: CLICKHOUSE_CONNECT_TIMEOUT
+        value: 30
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false

@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Sound Rehearsal Sessions
+    match /sound_rehearsal_sessions/{sessionId} {
+      // Allow read if user owns the session or is authenticated
+      allow read: if request.auth != null && (resource == null || resource.data.owner_uid == request.auth.uid);
+      // Allow create if new document sets owner_uid to caller
+      allow create: if request.auth != null && request.resource.data.owner_uid == request.auth.uid;
+      // Allow update only if caller is the owner
+      allow update: if request.auth != null && resource.data.owner_uid == request.auth.uid;
+      // Prevent client deletion of session records
+      allow delete: if false;
+    }
+
+    // Sound Rehearsal Operations (Idempotency and Audit Log)
+    match /sound_rehearsal_operations/{opId} {
+      allow read: if request.auth != null && resource.data.owner_uid == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.owner_uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}

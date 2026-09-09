@@ -1,0 +1,31 @@
+[project]
+name = "sound-rehearsal-backend"
+version = "0.1.0"
+description = "Sound Rehearsal Agent Backend: FastAPI, Google ADK/Gemini, ClickHouse MCP, and Firestore"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.6",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "google-genai>=2.3.0",
+    "google-adk>=2.8.0",
+    "mcp>=1.2.0,<3.0.0",
+    "mcp-clickhouse>=0.6.0",
+    "clickhouse-connect>=0.8.16",
+    "firebase-admin>=7.4.0",
+    "google-cloud-firestore>=2.27.0",
+    "python-dotenv>=1.0.1",
+    "httpx>=0.28.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
