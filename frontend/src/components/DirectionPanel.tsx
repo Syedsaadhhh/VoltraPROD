@@ -27,8 +27,12 @@ export const DirectionPanel: React.FC<DirectionPanelProps> = ({
   saveMessage,
 }) => {
   // Director Prompt State
-  const [instruction, setInstruction] = useState<string>('Add faint, deliberate footsteps on wood before the hero speaks.');
-  const [sceneBeats, setSceneBeats] = useState<string>('Night interior, empty cabin. Protagonist standing frozen near the door.');
+  const [instruction, setInstruction] = useState<string>(
+    'Build suspense with heavy footsteps before the character turns toward the doorway. Keep paper handling subtle. Do not add music or a door sound.'
+  );
+  const [sceneBeats, setSceneBeats] = useState<string>(
+    '0.0s-4.0s Woman at desk reviewing and folding paper document. 4.5s Cuts to medium close-up, turns abruptly toward door alerted by footsteps. 5.0s-10.0s Freezes staring at door.'
+  );
   const [isDirecting, setIsDirecting] = useState<boolean>(false);
   const [directionResponse, setDirectionResponse] = useState<DirectorDirectionResponse | null>(null);
   const [excludedAssetIds, setExcludedAssetIds] = useState<string[]>([]);
@@ -238,33 +242,41 @@ export const DirectionPanel: React.FC<DirectionPanelProps> = ({
             type="button"
             className="secondary"
             style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
-            onClick={() => setInstruction('Add faint, deliberate footsteps on wood before the hero speaks.')}
+            onClick={() => setInstruction('Build suspense with heavy footsteps before the character turns toward the doorway. Keep paper handling subtle. Do not add music or a door sound.')}
           >
-            Wood Footsteps
+            Heavy Footsteps
           </button>
           <button
             type="button"
             className="secondary"
             style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
-            onClick={() => setInstruction('Add tense concrete steps approaching from the right at 1 second.')}
+            onClick={() => setInstruction('Those footsteps are too aggressive. Replace them with the normal footsteps and make the approach quieter. Keep the paper cue.')}
           >
-            Concrete Footsteps
+            Normal Footsteps
           </button>
           <button
             type="button"
             className="secondary"
             style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
-            onClick={() => setInstruction('Cue a slow, ominous door creak right before the dialogue begins.')}
+            onClick={() => setInstruction('Subtle paper folding at the desk before she hears the threat.')}
           >
-            Door Creak
+            Paper Handling
           </button>
           <button
             type="button"
             className="secondary"
             style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
-            onClick={() => setInstruction('Add hollow, cold room ambience in the background at -12 dB.')}
+            onClick={() => setInstruction('Add subtle indoor room tone for background atmosphere.')}
           >
-            Cold Ambience
+            Indoor Room Tone
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+            onClick={() => setInstruction('Add a firm door close sound after the footsteps finish.')}
+          >
+            Door Close
           </button>
         </div>
 

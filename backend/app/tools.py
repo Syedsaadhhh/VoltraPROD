@@ -47,12 +47,11 @@ async def find_sound_candidates(
     where_sql = " AND ".join(where_clauses)
     query = (
         f"SELECT asset_id, source_path, sha256, duration_ms, sample_rate, channels, tags, "
-        f"source_description, rights_note, available "
+        f"rights_note, available "
         f"FROM {settings.CLICKHOUSE_DATABASE}.sound_assets "
         f"WHERE {where_sql} "
         f"ORDER BY asset_id ASC "
-        f"LIMIT {min(max(1, limit), 50)} "
-        f"FORMAT JSONEachRow"
+        f"LIMIT {min(max(1, limit), 50)}"
     )
 
     try:
@@ -60,20 +59,35 @@ async def find_sound_candidates(
         candidates = []
         raw_output = res.get("output", "").strip()
         if raw_output:
-            for line in raw_output.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                    # Normalize source_path for browser URL accessibility
-                    sp = row.get("source_path", "")
-                    if sp and not sp.startswith("/") and not sp.startswith("http"):
-                        sp = f"/{sp}"
-                    row["source_path"] = sp
-                    candidates.append(row)
-                except Exception as parse_err:
-                    logger.warning(f"Failed to parse candidate JSON line: {line} ({parse_err})")
+            try:
+                parsed = json.loads(raw_output)
+                if isinstance(parsed, dict) and "columns" in parsed and "rows" in parsed:
+                    cols = parsed["columns"]
+                    for r in parsed["rows"]:
+                        candidates.append(dict(zip(cols, r)))
+                elif isinstance(parsed, list):
+                    for item in parsed:
+                        if isinstance(item, dict):
+                            candidates.append(item)
+                elif isinstance(parsed, dict):
+                    candidates.append(parsed)
+            except Exception:
+                # Fallback to newline-delimited JSON
+                for line in raw_output.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        candidates.append(json.loads(line))
+                    except Exception:
+                        pass
+
+        # Normalize source_path
+        for row in candidates:
+            sp = row.get("source_path", "")
+            if sp and not sp.startswith("/") and not sp.startswith("http"):
+                sp = f"/{sp}"
+            row["source_path"] = sp
 
         return {
             "status": "success",
@@ -108,8 +122,7 @@ async def recall_auditions(
         f"FROM {settings.CLICKHOUSE_DATABASE}.audition_events "
         f"WHERE session_id = '{clean_sid}' "
         f"ORDER BY occurred_at DESC "
-        f"LIMIT {min(max(1, limit), 50)} "
-        f"FORMAT JSONEachRow"
+        f"LIMIT {min(max(1, limit), 50)}"
     )
 
     try:
@@ -117,14 +130,25 @@ async def recall_auditions(
         events = []
         raw_output = res.get("output", "").strip()
         if raw_output:
-            for line in raw_output.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    events.append(json.loads(line))
-                except Exception:
-                    pass
+            try:
+                parsed = json.loads(raw_output)
+                if isinstance(parsed, dict) and "columns" in parsed and "rows" in parsed:
+                    cols = parsed["columns"]
+                    for r in parsed["rows"]:
+                        events.append(dict(zip(cols, r)))
+                elif isinstance(parsed, list):
+                    for item in parsed:
+                        if isinstance(item, dict):
+                            events.append(item)
+            except Exception:
+                for line in raw_output.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        events.append(json.loads(line))
+                    except Exception:
+                        pass
 
         return {
             "status": "success",

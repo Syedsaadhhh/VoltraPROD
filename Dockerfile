@@ -30,6 +30,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application source code
 COPY backend/app ./backend/app
 COPY sql ./sql
+COPY assets/raw ./assets/raw
+COPY frontend/public ./frontend/public
 
 # Copy built frontend assets to the location expected by FastAPI
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist

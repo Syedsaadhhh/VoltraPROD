@@ -61,3 +61,51 @@ def test_pan_clamping():
     assert clamp_pan(-1.5) == -1.0
     assert clamp_pan(1.5) == 1.0
     assert clamp_pan(-0.5) == -0.5
+
+
+def test_real_demo_assets_resolution():
+    """Verify every selectable asset in manifest.json resolves to a decodable file."""
+    import json
+    root = Path(__file__).resolve().parent.parent
+    manifest_path = root / "assets" / "manifest.json"
+    assert manifest_path.exists(), "assets/manifest.json must exist"
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assets = manifest.get("assets", [])
+    assert len(assets) == 5, f"Expected 5 real audio assets, got {len(assets)}"
+
+    obsolete_ids = {
+        "asset_ambient_wind_hollow_01",
+        "asset_cloth_rustle_jacket_01",
+        "asset_dialogue_hero_01",
+        "asset_door_creak_slow_01",
+        "asset_footsteps_concrete_01",
+        "asset_footsteps_wood_01",
+        "asset_tense_drone_low_01",
+    }
+
+    demo_dir = root / "frontend" / "public" / "demo"
+
+    for asset in assets:
+        assert asset["id"] not in obsolete_ids, f"Obsolete fixture {asset['id']} must not be in manifest"
+        file_path = root / "frontend" / "public" / asset["source_path"]
+        assert file_path.exists(), f"File {file_path} must exist for asset {asset['id']}"
+
+        # Must decode cleanly via wave
+        with wave.open(str(file_path), "rb") as wf:
+            assert wf.getnchannels() == asset["channels"]
+            assert wf.getframerate() == asset["sample_rate"]
+            frames = wf.getnframes()
+            dur_ms = int((frames / float(wf.getframerate())) * 1000)
+            assert abs(dur_ms - asset["duration_ms"]) <= 10
+
+    # Ensure no obsolete fixture files linger in demo directory
+    for old_id in obsolete_ids:
+        filename = old_id.replace("asset_", "") + ".wav"
+        assert not (demo_dir / filename).exists(), f"Obsolete file {filename} must not exist in demo dir"
+
+    # Cropped scene video must exist
+    scene_mp4 = demo_dir / "scene.mp4"
+    assert scene_mp4.exists(), "frontend/public/demo/scene.mp4 must exist"
+    assert scene_mp4.stat().st_size > 1000000, "scene.mp4 must be valid size"
+

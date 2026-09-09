@@ -86,7 +86,7 @@ async def test_find_sound_candidates_query_construction():
         assert "hasAny(tags, ['tense', 'drone'])" in query
         assert "duration_ms >= 2000" in query
         assert "asset_id NOT IN ('asset_footsteps_wood_01', 'asset_dialogue_hero_01')" in query
-        assert "FORMAT JSONEachRow" in query
+        assert "FORMAT JSONEachRow" not in query
 
 
 @pytest.mark.asyncio

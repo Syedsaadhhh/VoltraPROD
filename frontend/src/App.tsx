@@ -12,7 +12,7 @@ const INITIAL_SESSION: Session = {
   id: 'voltra_rehearsal_master',
   owner_uid: 'director_master_local',
   revision: 0,
-  scene_duration_ms: 10000,
+  scene_duration_ms: 10034,
   protected_track_ids: ['dialogue'],
   cues: [],
   status: 'idle',
@@ -178,6 +178,23 @@ export default function App() {
     }
   };
 
+  const handleStartFreshDemo = () => {
+    audioEngine.stopAllSources();
+    setSession({
+      ...INITIAL_SESSION,
+      id: `voltra_demo_${Date.now().toString(36)}`,
+      scene_duration_ms: 10034,
+      updated_at: new Date().toISOString(),
+    });
+    setCurrentTimeMs(0);
+    setIsPlaying(false);
+  };
+
+  const obsoleteCues = session.cues.filter((cue) => {
+    if (catalogAssets.length === 0) return false;
+    return !catalogAssets.some((a) => a.id === cue.asset_id);
+  });
+
   return (
     <div className="container">
       {/* VoltraPROD Global Header */}
@@ -186,7 +203,7 @@ export default function App() {
           <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <Radio size={26} color="#3B82F6" />
             <span>VoltraPROD: AI Sound Rehearsal Studio</span>
-            <span className="badge badge-brand">Run 3: Agent Loop</span>
+            <span className="badge badge-brand">Run 4: Production Rehearsal</span>
           </h1>
           <p>
             Agentic Cinema Sound Design Rehearsal — Gemini 3.1 Agent, ClickHouse Cloud MCP, Firestore Revisions &amp; Browser Playback
@@ -194,6 +211,14 @@ export default function App() {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="secondary"
+            onClick={handleStartFreshDemo}
+            style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem' }}
+          >
+            Fresh Session
+          </button>
           {loading && <span className="badge badge-warning">Syncing...</span>}
           <span className={`badge ${health?.status === 'ok' ? 'badge-success' : 'badge-error'}`}>
             Backend: {health?.status === 'ok' ? 'Online' : 'Offline'}
@@ -212,6 +237,24 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* Obsolete Assets Warning Banner */}
+      {obsoleteCues.length > 0 && (
+        <div className="card" style={{ borderColor: '#F59E0B', background: 'rgba(245, 158, 11, 0.1)', padding: '0.75rem 1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div>
+              <strong style={{ color: '#F59E0B' }}>Obsolete Fixture Assets Detected</strong>
+              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: '#D4D4D8' }}>
+                This session contains removed test fixtures ({obsoleteCues.map((c) => c.asset_id).join(', ')}).
+                Playback of obsolete assets is disabled. Start a fresh demo session with the real recording catalogue.
+              </p>
+            </div>
+            <button onClick={handleStartFreshDemo} style={{ background: '#3B82F6', borderColor: 'transparent', whiteSpace: 'nowrap' }}>
+              Start Fresh Demo Session
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Backend Disconnect Alert */}
       {error && (

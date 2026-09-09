@@ -52,18 +52,21 @@ SYSTEM_INSTRUCTION = """You are VoltraPROD's AI Sound Designer and Rehearsal Dir
 You assist a film director with placing, editing, and rehearsing sound effects, foley, and ambience for a scene timeline.
 
 YOUR WORKFLOW:
-1. Always first inspect the session and check existing cues and protected tracks.
+1. Always first inspect the session to check existing cues and protected tracks.
 2. If prior auditions or rejections exist, call recall_auditions to understand prior feedback.
-3. Call find_sound_candidates with relevant tags (e.g. ['footsteps', 'surface:wood'], ['foley', 'door'], ['ambience', 'atmosphere']) to find actual sound recordings from the ClickHouse sound catalog.
+3. Call find_sound_candidates with relevant tags (e.g. ['footsteps', 'heavy'], ['footsteps', 'normal'], ['paper', 'handling'], ['door'], ['ambience', 'room_tone']) to find real sound recordings from the ClickHouse sound catalog.
 4. From the returned real candidates, choose the most appropriate asset. NEVER invent asset IDs; only use asset_ids returned by find_sound_candidates.
-5. Propose a concrete edit batch by calling propose_edit_batch.
+5. Propose a concrete edit batch by calling propose_edit_batch:
+   - When placing a cue, set timeline_start_ms to match the scene beats (e.g. paper handling during 0-4s at desk, footsteps leading up to the abrupt turn around 4.5s).
+   - Set source_in_ms and source_out_ms within the candidate's actual duration. Trim through cue source ranges when needed; do not stretch or pad files.
+   - When asked to replace a sound (e.g. replace heavy footsteps with normal footsteps and make them quieter), remove the unwanted cue with action='remove', search for the replacement sound, add the new cue with lower gain_db, and PRESERVE other cues (such as paper folding).
 
 CRITICAL CONSTRAINTS:
 - The 'dialogue' track is STRICTLY PROTECTED. Never propose adding, modifying, or removing cues on the 'dialogue' track.
 - Only place sound cues on 'foley', 'sfx', or 'ambience' tracks.
 - Numeric bounds:
   * timeline_start_ms >= 0
-  * gain_db between -60.0 and 0.0 dB (e.g. -3.0 to -12.0 for subtle sounds)
+  * gain_db between -60.0 and 0.0 dB (e.g. -14.0 to -6.0 for subtle or quiet sounds)
   * pan between -1.0 (left) and 1.0 (right)
 - When the director rejects an asset or asks for an alternative, query fresh candidates and choose a DIFFERENT asset.
 """
@@ -107,30 +110,84 @@ async def run_director_agent(
     tool_traces: List[Dict[str, Any]] = []
     proposed_batch_data: Optional[Dict[str, Any]] = None
 
-    # Declare tool signatures for Gemini
-    def find_sound_candidates_tool(tags: List[str] = None, min_duration_ms: int = 0, limit: int = 5) -> str:
-        """Search the ClickHouse sound catalog for sound assets matching tags and duration constraints. Returns available assets."""
-        return "Find sound assets in ClickHouse"
-
-    def recall_auditions_tool(limit: int = 5) -> str:
-        """Recall prior audition events, director decisions (accepted/rejected), and notes from ClickHouse."""
-        return "Recall audition events"
-
-    def inspect_session_tool() -> str:
-        """Inspect current session cues, timeline start offsets, and protected tracks."""
-        return "Inspect current session state"
-
-    def propose_edit_batch_tool(edits: List[Dict[str, Any]], rationale_summary: str) -> str:
-        """Propose a concrete batch of sound cue edits. Each edit item contains: action ('add'/'modify'/'remove'), cue_id (str), and cue (dict with asset_id, timeline_start_ms, gain_db, pan, track_id, envelope_points). Rationale summary explains why."""
-        return "Propose edit batch"
-
     from google.genai import types
 
+    func_find_candidates = types.FunctionDeclaration(
+        name="find_sound_candidates",
+        description="Search ClickHouse sound catalog for sound recordings matching tags and constraints. Returns real available assets.",
+        parameters=types.Schema(
+            type="OBJECT",
+            properties={
+                "tags": types.Schema(type="ARRAY", items=types.Schema(type="STRING"), description="Search tags, e.g. ['footsteps', 'heavy'], ['footsteps', 'normal'], ['paper', 'handling'], ['door'], ['ambience']"),
+                "min_duration_ms": types.Schema(type="INTEGER", description="Minimum duration in milliseconds"),
+                "limit": types.Schema(type="INTEGER", description="Maximum number of candidates to return"),
+            },
+        ),
+    )
+
+    func_recall_auditions = types.FunctionDeclaration(
+        name="recall_auditions",
+        description="Recall prior audition feedback, director decisions (accepted/rejected), and notes from ClickHouse event store.",
+        parameters=types.Schema(
+            type="OBJECT",
+            properties={
+                "limit": types.Schema(type="INTEGER", description="Maximum number of events to recall"),
+            },
+        ),
+    )
+
+    func_inspect_session = types.FunctionDeclaration(
+        name="inspect_session",
+        description="Read the authoritative current session and cue state from Firestore.",
+        parameters=types.Schema(
+            type="OBJECT",
+            properties={},
+        ),
+    )
+
+    func_propose_edit_batch = types.FunctionDeclaration(
+        name="propose_edit_batch",
+        description="Propose an atomic batch of sound cue edits for the session.",
+        parameters=types.Schema(
+            type="OBJECT",
+            properties={
+                "edits": types.Schema(
+                    type="ARRAY",
+                    items=types.Schema(
+                        type="OBJECT",
+                        properties={
+                            "action": types.Schema(type="STRING", description="'add', 'modify', or 'remove'"),
+                            "cue_id": types.Schema(type="STRING", description="Unique cue ID"),
+                            "cue": types.Schema(
+                                type="OBJECT",
+                                properties={
+                                    "asset_id": types.Schema(type="STRING", description="Real asset_id returned from find_sound_candidates"),
+                                    "timeline_start_ms": types.Schema(type="INTEGER", description="Timeline start position in milliseconds"),
+                                    "source_in_ms": types.Schema(type="INTEGER", description="In-point in milliseconds inside asset"),
+                                    "source_out_ms": types.Schema(type="INTEGER", description="Out-point in milliseconds inside asset"),
+                                    "gain_db": types.Schema(type="NUMBER", description="Gain in dB [-60.0 to 0.0]"),
+                                    "pan": types.Schema(type="NUMBER", description="Stereo pan [-1.0 to 1.0]"),
+                                    "track_id": types.Schema(type="STRING", description="Track layer: 'foley', 'sfx', or 'ambience'"),
+                                },
+                            ),
+                        },
+                        required=["action", "cue_id"],
+                    ),
+                    description="List of cue edits",
+                ),
+                "rationale_summary": types.Schema(type="STRING", description="Creative and technical rationale explaining choices"),
+            },
+            required=["edits", "rationale_summary"],
+        ),
+    )
+
     tools_list = [
-        find_sound_candidates_tool,
-        recall_auditions_tool,
-        inspect_session_tool,
-        propose_edit_batch_tool,
+        types.Tool(function_declarations=[
+            func_find_candidates,
+            func_recall_auditions,
+            func_inspect_session,
+            func_propose_edit_batch,
+        ])
     ]
 
     # Construct conversation contents
@@ -204,7 +261,7 @@ async def run_director_agent(
                 call_args = call.args or {}
                 logger.info(f"Agent tool call: {call_name} with args: {call_args}")
 
-                if call_name == "find_sound_candidates_tool":
+                if call_name in ("find_sound_candidates", "find_sound_candidates_tool"):
                     tags = call_args.get("tags") or []
                     min_dur = int(call_args.get("min_duration_ms") or 0)
                     limit = int(call_args.get("limit") or 5)
@@ -228,7 +285,7 @@ async def run_director_agent(
                         )
                     )
 
-                elif call_name == "recall_auditions_tool":
+                elif call_name in ("recall_auditions", "recall_auditions_tool"):
                     limit = int(call_args.get("limit") or 5)
                     res = await recall_auditions(session_id=session_id, limit=limit)
                     events = res.get("events", [])
@@ -244,7 +301,7 @@ async def run_director_agent(
                         )
                     )
 
-                elif call_name == "inspect_session_tool":
+                elif call_name in ("inspect_session", "inspect_session_tool"):
                     res = await inspect_session(session_id=session_id)
                     sess = res.get("session") or {}
                     tool_traces.append({
@@ -259,7 +316,7 @@ async def run_director_agent(
                         )
                     )
 
-                elif call_name == "propose_edit_batch_tool":
+                elif call_name in ("propose_edit_batch", "propose_edit_batch_tool"):
                     edits = call_args.get("edits") or []
                     rationale = call_args.get("rationale_summary") or "AI sound rehearsal treatment"
                     proposed_batch_data = {
@@ -320,8 +377,17 @@ async def run_director_agent(
     if proposed_batch_data and "edits" in proposed_batch_data:
         raw_edits = proposed_batch_data["edits"]
         for idx, e in enumerate(raw_edits):
-            action = e.get("action", "add")
+            action_str = str(e.get("action", "add")).lower()
             cue_id = e.get("cue_id") or f"cue_ai_{uuid.uuid4().hex[:6]}"
+
+            if action_str == "remove":
+                clean_edits.append(CueEdit(
+                    action=CueEditAction.REMOVE,
+                    cue_id=cue_id,
+                    cue=None,
+                ))
+                continue
+
             cue_dict = e.get("cue") or {}
 
             # Strict protected track check
@@ -334,14 +400,17 @@ async def run_director_agent(
             timeline_start = max(0, int(cue_dict.get("timeline_start_ms", 1000)))
             gain_db = max(-60.0, min(0.0, float(cue_dict.get("gain_db", -3.0))))
             pan = max(-1.0, min(1.0, float(cue_dict.get("pan", 0.0))))
-            asset_id = cue_dict.get("asset_id") or "asset_footsteps_wood_01"
+            asset_id = cue_dict.get("asset_id")
+            if not asset_id:
+                logger.warning(f"Rejecting AI edit without asset_id: {e}")
+                continue
 
             # Build cue
             cue = Cue(
                 id=cue_id,
                 asset_id=asset_id,
-                source_in_ms=int(cue_dict.get("source_in_ms", 0)),
-                source_out_ms=int(cue_dict.get("source_out_ms", 3000)),
+                source_in_ms=max(0, int(cue_dict.get("source_in_ms", 0))),
+                source_out_ms=max(10, int(cue_dict.get("source_out_ms", 3000))),
                 timeline_start_ms=timeline_start,
                 gain_db=gain_db,
                 pan=pan,
@@ -355,9 +424,9 @@ async def run_director_agent(
             )
 
             clean_edits.append(CueEdit(
-                action=CueEditAction(action),
+                action=CueEditAction(action_str),
                 cue_id=cue_id,
-                cue=cue if action in ("add", "modify") else None,
+                cue=cue,
             ))
 
     op_id = f"op_ai_{uuid.uuid4().hex[:8]}"

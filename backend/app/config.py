@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # Gemini / Google ADK
     GOOGLE_API_KEY: Optional[str] = Field(default=None, description="AI Studio API key")
-    GEMINI_MODEL: str = Field(default="gemini-3.6-flash", description="Pinned Gemini model identifier")
+    GEMINI_MODEL: str = Field(default="gemini-3.1-flash-lite", description="Pinned Gemini model identifier")
 
     # ClickHouse Cloud
     CLICKHOUSE_HOST: Optional[str] = Field(default=None, description="ClickHouse Cloud hostname (pure hostname, no scheme or path)")
