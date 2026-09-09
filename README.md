@@ -1,28 +1,30 @@
 # VoltraPROD
 
 > **AI-Directed Sound Rehearsal Studio**  
-> VoltraPROD is an intelligent sound rehearsal and audio-post production platform designed for dialogue, sound effects, foley, and ambient score placement against video and audio timelines.
+> VoltraPROD is an intelligent sound rehearsal and audio-post production platform designed for dialogue, sound effects, foley, and ambient score placement against video and audio timelines.  
+> **Live Hosted Deployment**: [https://sound-rehearsal.onrender.com](https://sound-rehearsal.onrender.com)
 
 ---
 
 ## System Architecture
 
-`mermaid
+```mermaid
 graph TD
     User([Sound Designer / Director]) <--> Frontend[VoltraPROD Web Shell (React 19 + Web Audio Engine)]
     Frontend <-->|REST API / Bearer Token| Backend[FastAPI Backend (Python 3.12)]
-    Backend <-->|Google GenAI SDK| Gemini[Gemini Developer API (gemini-3.1-flash-lite)]
+    Backend <-->|google-genai SDK Loop| Gemini[Gemini Developer API (gemini-3.1-flash-lite)]
     Backend <-->|FastMCP stdio| MCP[Official mcp-clickhouse Server]
     MCP <-->|Port 8443 HTTPS| ClickHouse[(ClickHouse Cloud Catalog & Analytics)]
     Backend <-->|google-cloud-firestore| Firestore[(Firebase Firestore Revision Store)]
-`
+```
 
 ### Core Architecture Highlights
 - **Web Audio Scheduling Engine**: Browser-native deterministic playback scheduler, volume envelopes, stereo panning, dynamic compression, immediate cancellation on seek/pause/edit, offline 16-bit stereo PCM WAV rendering, and JSON session interchange.
 - **Session-Local Media Isolation**: Raw audio and video files remain strictly local to the user's browser session. Only bounded metadata, audio hashes, and cue timings are transmitted to backend and ClickHouse, ensuring low latency and privacy.
-- **Google GenAI / ADK Integration**: Uses Gemini Developer API pinned to gemini-3.1-flash-lite with structured function calling.
-- **Official ClickHouse MCP**: Uses mcp-clickhouse (FastMCP) over stdio connecting to ClickHouse Cloud on port 8443 (HTTPS) with a dedicated read-only role (sound_rehearsal_reader).
-- **Firestore Session Revisions**: Spark free plan compatibility with atomic monotonic revisions, optimistic locking (expected_revision), and protected dialogue track safeguards.
+- **Google GenAI Agent Loop**: Uses `google-genai` Python SDK with `gemini-3.1-flash-lite` in an iterative tool-calling loop using explicit `FunctionDeclaration` bindings to ClickHouse MCP, Firestore revision inspection, and atomic edit batch proposals.
+- **Official ClickHouse MCP**: Uses `mcp-clickhouse` (FastMCP) over stdio connecting to ClickHouse Cloud on port 8443 (HTTPS) with a dedicated read-only role (`sound_rehearsal_reader`).
+- **Firestore Session Revisions**: Spark free plan compatibility with atomic monotonic revisions, optimistic locking (`expected_revision`), and protected dialogue track safeguards.
+- **Audition & Verification Scope**: Automated proof scripts (`scripts/prove_workflow.py`) execute scripted programmatic feedback turns; acoustic balance and audible quality require human audition via physical speakers or headphones.
 
 ---
 

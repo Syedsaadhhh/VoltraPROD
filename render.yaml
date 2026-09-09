@@ -43,3 +43,7 @@ services:
         sync: false
       - key: FIREBASE_PRIVATE_KEY
         sync: false
+      - key: FIREBASE_WEB_API_KEY
+        sync: false
+      - key: FIREBASE_APP_ID
+        value: 1:773118731903:web:6c58b4804f0baf7c82c14a

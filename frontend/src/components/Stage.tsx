@@ -35,6 +35,8 @@ export const Stage: React.FC<StageProps> = ({
   useEffect(() => {
     if (videoRef.current && videoSrc) {
       const vid = videoRef.current;
+      vid.muted = true;
+      vid.volume = 0;
       const targetSec = currentTimeMs / 1000.0;
       const drift = Math.abs(vid.currentTime - targetSec) * 1000.0;
       setMeasuredDriftMs(Math.round(drift));
@@ -108,6 +110,7 @@ export const Stage: React.FC<StageProps> = ({
             src={videoSrc}
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
             muted
+            playsInline
           />
         ) : (
           <div style={{ textAlign: 'center', color: '#64748b' }}>

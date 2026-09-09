@@ -73,6 +73,8 @@ class Settings(BaseSettings):
     FIREBASE_CLIENT_EMAIL: Optional[str] = Field(default=None, description="Service account client email")
     FIREBASE_PRIVATE_KEY: Optional[str] = Field(default=None, description="Service account private key")
     GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = Field(default=None, description="Path to service account file")
+    FIREBASE_WEB_API_KEY: Optional[str] = Field(default=None, description="Public Firebase Web API Key")
+    FIREBASE_APP_ID: Optional[str] = Field(default="1:773118731903:web:6c58b4804f0baf7c82c14a", description="Public Firebase Web App ID")
 
     # Hosting & Runtime
     PORT: int = Field(default=8000, description="Web server listening port")

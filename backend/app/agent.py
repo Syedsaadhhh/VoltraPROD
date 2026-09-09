@@ -272,16 +272,20 @@ async def run_director_agent(
                         limit=limit,
                     )
                     candidates = res.get("candidates", [])
+                    tool_status = res.get("status", "success")
                     tool_traces.append({
                         "tool": "find_sound_candidates",
                         "summary": f"Queried ClickHouse MCP for tags {tags}; found {len(candidates)} available asset(s)",
-                        "status": res.get("status", "success"),
+                        "status": tool_status,
                         "candidates_count": len(candidates),
                     })
+                    resp_dict = {"candidates": candidates, "status": tool_status}
+                    if "error" in res:
+                        resp_dict["error"] = res["error"]
                     function_response_parts.append(
                         types.Part.from_function_response(
                             name=call_name,
-                            response={"candidates": candidates, "status": "success"},
+                            response=resp_dict,
                         )
                     )
 
@@ -289,30 +293,38 @@ async def run_director_agent(
                     limit = int(call_args.get("limit") or 5)
                     res = await recall_auditions(session_id=session_id, limit=limit)
                     events = res.get("events", [])
+                    tool_status = res.get("status", "success")
                     tool_traces.append({
                         "tool": "recall_auditions",
                         "summary": f"Recalled {len(events)} prior audition decision(s) from ClickHouse event store",
-                        "status": res.get("status", "success"),
+                        "status": tool_status,
                     })
+                    resp_dict = {"events": events, "status": tool_status}
+                    if "error" in res:
+                        resp_dict["error"] = res["error"]
                     function_response_parts.append(
                         types.Part.from_function_response(
                             name=call_name,
-                            response={"events": events, "status": "success"},
+                            response=resp_dict,
                         )
                     )
 
                 elif call_name in ("inspect_session", "inspect_session_tool"):
                     res = await inspect_session(session_id=session_id)
                     sess = res.get("session") or {}
+                    tool_status = res.get("status", "success")
                     tool_traces.append({
                         "tool": "inspect_session",
                         "summary": f"Inspected session revision {sess.get('revision', base_revision)} with {len(sess.get('cues', []))} existing cue(s)",
-                        "status": res.get("status", "success"),
+                        "status": tool_status,
                     })
+                    resp_dict = {"session": sess, "status": tool_status}
+                    if "error" in res:
+                        resp_dict["error"] = res["error"]
                     function_response_parts.append(
                         types.Part.from_function_response(
                             name=call_name,
-                            response={"session": sess, "status": "success"},
+                            response=resp_dict,
                         )
                     )
 
@@ -405,21 +417,55 @@ async def run_director_agent(
                 logger.warning(f"Rejecting AI edit without asset_id: {e}")
                 continue
 
+            # Validate selected asset duration bounds
+            KNOWN_ASSET_MAX_DURATIONS = {
+                "asset_door_close": 3000,
+                "asset_footseps_heavy": 6000,
+                "asset_footsteps_normal": 6000,
+                "asset_paper_fold": 6000,
+                "asset_room_tone": 14920,
+            }
+            max_duration = KNOWN_ASSET_MAX_DURATIONS.get(asset_id, 30000)
+
+            # Clamp source in/out strictly to actual duration bounds
+            raw_in = int(cue_dict.get("source_in_ms", 0))
+            raw_out = int(cue_dict.get("source_out_ms", max_duration))
+            source_in = max(0, min(raw_in, max_duration - 10))
+            source_out = max(source_in + 10, min(raw_out, max_duration))
+            cue_dur = source_out - source_in
+
+            # Build envelope strictly fitted to actual cue duration
+            fade_ms = min(80, max(1, int(cue_dur * 0.1)))
+            raw_env = cue_dict.get("envelope_points")
+            if raw_env and isinstance(raw_env, list) and len(raw_env) >= 2:
+                fitted_env = []
+                for pt in raw_env:
+                    offset = max(0, min(int(pt.get("offset_ms", 0)), cue_dur))
+                    level = max(0.0, min(1.0, float(pt.get("level", 1.0))))
+                    fitted_env.append({"offset_ms": offset, "level": level})
+                fitted_env.sort(key=lambda p: p["offset_ms"])
+                if fitted_env[0]["offset_ms"] != 0:
+                    fitted_env.insert(0, {"offset_ms": 0, "level": 0.0})
+                if fitted_env[-1]["offset_ms"] < cue_dur:
+                    fitted_env.append({"offset_ms": cue_dur, "level": 0.0})
+            else:
+                fitted_env = [
+                    {"offset_ms": 0, "level": 0.0},
+                    {"offset_ms": fade_ms, "level": 1.0},
+                    {"offset_ms": max(fade_ms, cue_dur - fade_ms), "level": 1.0},
+                    {"offset_ms": cue_dur, "level": 0.0},
+                ]
+
             # Build cue
             cue = Cue(
                 id=cue_id,
                 asset_id=asset_id,
-                source_in_ms=max(0, int(cue_dict.get("source_in_ms", 0))),
-                source_out_ms=max(10, int(cue_dict.get("source_out_ms", 3000))),
+                source_in_ms=source_in,
+                source_out_ms=source_out,
                 timeline_start_ms=timeline_start,
                 gain_db=gain_db,
                 pan=pan,
-                envelope_points=cue_dict.get("envelope_points", [
-                    {"offset_ms": 0, "level": 0.0},
-                    {"offset_ms": 80, "level": 1.0},
-                    {"offset_ms": 2900, "level": 1.0},
-                    {"offset_ms": 3000, "level": 0.0},
-                ]),
+                envelope_points=fitted_env,
                 track_id=track,
             )
 

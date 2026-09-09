@@ -26,7 +26,7 @@ from app.models import (
     DirectorDirectionResponse,
     ToolResultStatus,
 )
-from app.auth import verify_user, assert_session_ownership
+from app.auth import verify_user, assert_session_ownership, get_public_firebase_config
 from app.firestore_store import firestore_store
 from app.mcp_client import clickhouse_mcp
 from app.agent import run_director_agent
@@ -90,6 +90,12 @@ async def system_status() -> Dict[str, Any]:
         "version": "0.1.0",
         "integrations": status_report,
     }
+
+
+@app.get("/api/auth/config", tags=["auth"])
+async def get_auth_config() -> Dict[str, Any]:
+    """Retrieve public Firebase Web Client configuration safely. Never exposes service account secrets."""
+    return await get_public_firebase_config()
 
 
 @app.post("/api/sessions", tags=["sessions"], response_model=Session)

@@ -98,3 +98,74 @@ def assert_session_ownership(session_owner_uid: str, current_user_uid: str) -> N
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden: caller does not own this rehearsal session",
         )
+
+
+_cached_public_config = None
+
+
+async def get_public_firebase_config() -> dict:
+    """Safely retrieve and cache public Firebase Web Client configuration. Never exposes service account secrets."""
+    global _cached_public_config
+    if _cached_public_config:
+        return _cached_public_config
+
+    # Explicit environment variable priority
+    if settings.FIREBASE_WEB_API_KEY:
+        _cached_public_config = {
+            "apiKey": settings.FIREBASE_WEB_API_KEY,
+            "authDomain": f"{settings.FIREBASE_PROJECT_ID}.firebaseapp.com" if settings.FIREBASE_PROJECT_ID else "",
+            "projectId": settings.FIREBASE_PROJECT_ID or "",
+            "appId": settings.FIREBASE_APP_ID or "1:773118731903:web:6c58b4804f0baf7c82c14a",
+        }
+        return _cached_public_config
+
+    # Auto-resolve from Firebase Management API using service account credentials
+    if settings.is_firestore_configured:
+        try:
+            import json
+            import urllib.request
+            import google.oauth2.service_account
+            from google.auth.transport.requests import Request
+
+            private_key = settings.formatted_firebase_private_key
+            creds = google.oauth2.service_account.Credentials.from_service_account_info({
+                "type": "service_account",
+                "project_id": settings.FIREBASE_PROJECT_ID,
+                "client_email": settings.FIREBASE_CLIENT_EMAIL,
+                "private_key": private_key,
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }, scopes=["https://www.googleapis.com/auth/cloud-platform", "https://www.googleapis.com/auth/firebase"])
+            creds.refresh(Request())
+
+            req = urllib.request.Request(
+                f"https://firebase.googleapis.com/v1beta1/projects/{settings.FIREBASE_PROJECT_ID}/webApps",
+                headers={"Authorization": f"Bearer {creds.token}"},
+            )
+            resp = urllib.request.urlopen(req, timeout=10)
+            apps = json.loads(resp.read()).get("apps", [])
+            if apps:
+                app_id = apps[0]["appId"]
+                req2 = urllib.request.Request(
+                    f"https://firebase.googleapis.com/v1beta1/projects/{settings.FIREBASE_PROJECT_ID}/webApps/{app_id}/config",
+                    headers={"Authorization": f"Bearer {creds.token}"},
+                )
+                cfg = json.loads(urllib.request.urlopen(req2, timeout=10).read())
+                _cached_public_config = {
+                    "apiKey": cfg.get("apiKey", ""),
+                    "authDomain": cfg.get("authDomain", f"{settings.FIREBASE_PROJECT_ID}.firebaseapp.com"),
+                    "projectId": cfg.get("projectId", settings.FIREBASE_PROJECT_ID),
+                    "appId": cfg.get("appId", app_id),
+                }
+                logger.info(f"Auto-resolved public Firebase Web App configuration for '{settings.FIREBASE_PROJECT_ID}'")
+                return _cached_public_config
+        except Exception as ex:
+            logger.warning(f"Could not auto-fetch public Firebase web app config: {ex}")
+
+    # Fallback to minimal public descriptors
+    _cached_public_config = {
+        "apiKey": settings.FIREBASE_WEB_API_KEY or "",
+        "authDomain": f"{settings.FIREBASE_PROJECT_ID}.firebaseapp.com" if settings.FIREBASE_PROJECT_ID else "",
+        "projectId": settings.FIREBASE_PROJECT_ID or "",
+        "appId": settings.FIREBASE_APP_ID or "1:773118731903:web:6c58b4804f0baf7c82c14a",
+    }
+    return _cached_public_config

@@ -178,16 +178,23 @@ export default function App() {
     }
   };
 
-  const handleStartFreshDemo = () => {
+  const handleStartFreshDemo = async () => {
     audioEngine.stopAllSources();
-    setSession({
+    const freshSession: Session = {
       ...INITIAL_SESSION,
       id: `voltra_demo_${Date.now().toString(36)}`,
       scene_duration_ms: 10034,
       updated_at: new Date().toISOString(),
-    });
+    };
+    setSession(freshSession);
     setCurrentTimeMs(0);
     setIsPlaying(false);
+    try {
+      const created = await createSession(freshSession);
+      if (created) setSession(created);
+    } catch (e) {
+      console.warn('Could not auto-persist fresh session:', e);
+    }
   };
 
   const obsoleteCues = session.cues.filter((cue) => {

@@ -3,7 +3,7 @@ import { Sparkles, Send, ThumbsUp, ThumbsDown, Play, Upload, Download, FileJson,
 import { audioEngine } from '../audio/engine';
 import { exportAuditionWav, exportSessionJson } from '../audio/render';
 import { Session, Cue, Asset, ToolTrace, DirectorDirectionResponse } from '../types';
-import { sendDirection, submitAuditionFeedback } from '../api';
+import { sendDirection, submitAuditionFeedback, createSession } from '../api';
 
 interface DirectionPanelProps {
   session: Session;
@@ -56,6 +56,13 @@ export const DirectionPanel: React.FC<DirectionPanelProps> = ({
       await audioEngine.initAudio();
 
       const toExclude = extraExcluded ? [...excludedAssetIds, ...extraExcluded] : excludedAssetIds;
+
+      // Ensure session exists in Firestore with caller's authenticated UID
+      try {
+        await createSession(session);
+      } catch {
+        // Session may already exist
+      }
 
       const res = await sendDirection(session.id, {
         instruction: textToSend,
