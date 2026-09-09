@@ -10,6 +10,7 @@ interface StageProps {
   onTogglePlay: () => void;
   audioReady: boolean;
   onEnableAudio: () => void;
+  onFrameCaptured?: (frameB64: string | null) => void;
 }
 
 export const Stage: React.FC<StageProps> = ({
@@ -20,11 +21,15 @@ export const Stage: React.FC<StageProps> = ({
   onTogglePlay,
   audioReady,
   onEnableAudio,
+  onFrameCaptured,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [videoSrc, setVideoSrc] = useState<string | null>(null);
-  const [videoFileName, setVideoFileName] = useState<string | null>(null);
+  const [videoSrc, setVideoSrc] = useState<string | null>('/demo/scene.mp4');
+  const [videoFileName, setVideoFileName] = useState<string | null>('scene.mp4 (10s Scene Rehearsal Cut)');
   const [measuredDriftMs, setMeasuredDriftMs] = useState<number | null>(null);
+  const [capturedFrameStatus, setCapturedFrameStatus] = useState<string | null>(null);
+
+
 
   // Sync HTML5 video with audio engine playhead
   useEffect(() => {
@@ -64,8 +69,24 @@ export const Stage: React.FC<StageProps> = ({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`;
   };
 
+  const handleCaptureFrame = () => {
+    if (!videoRef.current || !videoSrc) return;
+    const vid = videoRef.current;
+    if (vid.videoWidth === 0 || vid.videoHeight === 0) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = 480;
+    canvas.height = Math.round((480 / vid.videoWidth) * vid.videoHeight);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+    const b64 = canvas.toDataURL('image/jpeg', 0.8);
+    onFrameCaptured?.(b64);
+    setCapturedFrameStatus(`Captured keyframe at ${formatTimecode(currentTimeMs)} for AI scene alignment`);
+  };
+
   return (
-    <div className="card" style={{ padding: '1rem', background: '#0b0f19', borderColor: '#1e293b' }}>
+    <div className="card" style={{ padding: '1rem', background: '#18181B', borderColor: '#27272A' }}>
+
       {/* Video / Visual Stage Viewport */}
       <div
         style={{
@@ -195,42 +216,54 @@ export const Stage: React.FC<StageProps> = ({
           <button
             onClick={() => onSeek(0)}
             disabled={!audioReady}
-            style={{
-              background: '#1e293b',
-              border: '1px solid #334155',
-              padding: '0.4rem 0.6rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.3rem',
-            }}
+            className="secondary"
+            style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem' }}
           >
             <RotateCcw size={14} />
-            <span style={{ fontSize: '0.8rem' }}>Reset</span>
+            <span>Reset</span>
           </button>
+
+          {videoSrc && (
+            <button
+              onClick={handleCaptureFrame}
+              className="secondary"
+              style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem' }}
+            >
+              Capture Frame
+            </button>
+          )}
 
           <div
             style={{
               fontFamily: 'monospace',
-              fontSize: '1.1rem',
+              fontSize: '1.05rem',
               fontWeight: 700,
-              color: '#38bdf8',
+              color: '#60A5FA',
               marginLeft: '0.5rem',
             }}
           >
             {formatTimecode(currentTimeMs)}{' '}
-            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+            <span style={{ fontSize: '0.75rem', color: '#71717A' }}>
               / {formatTimecode(session.scene_duration_ms)}
             </span>
           </div>
         </div>
 
-        {/* Video-Audio Drift Indicator */}
-        {measuredDriftMs !== null && videoSrc && (
-          <div style={{ fontSize: '0.75rem', color: measuredDriftMs > 50 ? '#facc15' : '#4ade80' }}>
-            Measured A/V Drift: {measuredDriftMs}ms (locally bounded)
-          </div>
-        )}
+        {/* Video-Audio Drift & Frame Capture Indicator */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem' }}>
+          {measuredDriftMs !== null && videoSrc && (
+            <div style={{ fontSize: '0.72rem', color: measuredDriftMs > 50 ? '#F59E0B' : '#10B981' }}>
+              Measured A/V Drift: {measuredDriftMs}ms (locally bounded)
+            </div>
+          )}
+          {capturedFrameStatus && (
+            <div style={{ fontSize: '0.72rem', color: '#8B5CF6' }}>
+              {capturedFrameStatus}
+            </div>
+          )}
+        </div>
       </div>
     </div>
+
   );
 };

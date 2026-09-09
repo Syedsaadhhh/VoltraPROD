@@ -74,3 +74,46 @@ export async function applyEditBatch(sessionId: string, batch: EditBatch): Promi
   }
   return res.json();
 }
+
+export async function sendDirection(
+  sessionId: string,
+  request: import('./types').DirectorDirectionRequest
+): Promise<import('./types').DirectorDirectionResponse> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/direct`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `Failed to run direction (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function fetchCatalogAssets(): Promise<{ status: string; assets: import('./types').Asset[]; count: number }> {
+  const res = await fetch(`${BASE_URL}/api/catalog/assets`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch sound assets (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function submitAuditionFeedback(
+  sessionId: string,
+  feedback: import('./types').AuditionFeedback
+): Promise<{ status: string }> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/feedback`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(feedback),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `Failed to submit feedback (${res.status})`);
+  }
+  return res.json();
+}
+

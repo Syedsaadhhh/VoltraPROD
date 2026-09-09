@@ -33,14 +33,16 @@ async def find_sound_candidates(
         where_clauses.append(f"duration_ms >= {int(min_duration_ms)}")
 
     if exclude_asset_ids:
-        escaped_ids = ", ".join(f"'{aid}'" for aid in exclude_asset_ids if aid.isalnum() or "-" in aid or "_" in aid)
-        if escaped_ids:
+        clean_ids = [aid.strip().replace("'", "") for aid in exclude_asset_ids if aid.strip()]
+        if clean_ids:
+            escaped_ids = ", ".join(f"'{aid}'" for aid in clean_ids)
             where_clauses.append(f"asset_id NOT IN ({escaped_ids})")
 
-    # In ClickHouse array hasAny or hasAll for tags
     if tags:
-        tag_list_str = ", ".join(f"'{t}'" for t in tags)
-        where_clauses.append(f"hasAny(tags, [{tag_list_str}])")
+        clean_tags = [t.strip().replace("'", "") for t in tags if t.strip()]
+        if clean_tags:
+            tag_list_str = ", ".join(f"'{t}'" for t in clean_tags)
+            where_clauses.append(f"hasAny(tags, [{tag_list_str}])")
 
     where_sql = " AND ".join(where_clauses)
     query = (
@@ -49,15 +51,35 @@ async def find_sound_candidates(
         f"FROM {settings.CLICKHOUSE_DATABASE}.sound_assets "
         f"WHERE {where_sql} "
         f"ORDER BY asset_id ASC "
-        f"LIMIT {min(max(1, limit), 50)}"
+        f"LIMIT {min(max(1, limit), 50)} "
+        f"FORMAT JSONEachRow"
     )
 
     try:
         res = await clickhouse_mcp.execute_query(query)
+        candidates = []
+        raw_output = res.get("output", "").strip()
+        if raw_output:
+            for line in raw_output.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                    # Normalize source_path for browser URL accessibility
+                    sp = row.get("source_path", "")
+                    if sp and not sp.startswith("/") and not sp.startswith("http"):
+                        sp = f"/{sp}"
+                    row["source_path"] = sp
+                    candidates.append(row)
+                except Exception as parse_err:
+                    logger.warning(f"Failed to parse candidate JSON line: {line} ({parse_err})")
+
         return {
-            "status": res.get("status", "success"),
+            "status": "success",
             "query": query,
-            "data": res.get("output", ""),
+            "count": len(candidates),
+            "candidates": candidates,
         }
     except Exception as e:
         logger.error(f"Error querying sound candidates: {e}")
@@ -86,15 +108,29 @@ async def recall_auditions(
         f"FROM {settings.CLICKHOUSE_DATABASE}.audition_events "
         f"WHERE session_id = '{clean_sid}' "
         f"ORDER BY occurred_at DESC "
-        f"LIMIT {min(max(1, limit), 50)}"
+        f"LIMIT {min(max(1, limit), 50)} "
+        f"FORMAT JSONEachRow"
     )
 
     try:
         res = await clickhouse_mcp.execute_query(query)
+        events = []
+        raw_output = res.get("output", "").strip()
+        if raw_output:
+            for line in raw_output.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except Exception:
+                    pass
+
         return {
-            "status": res.get("status", "success"),
+            "status": "success",
             "query": query,
-            "data": res.get("output", ""),
+            "count": len(events),
+            "events": events,
         }
     except Exception as e:
         logger.error(f"Error recalling auditions: {e}")
@@ -125,3 +161,4 @@ async def inspect_session(session_id: str) -> Dict[str, Any]:
         "status": "success",
         "session": session.model_dump(mode="json"),
     }
+

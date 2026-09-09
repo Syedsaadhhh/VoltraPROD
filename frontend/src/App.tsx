@@ -1,36 +1,20 @@
 import { useEffect, useState } from 'react';
-import { fetchHealth, fetchSystemStatus, createSession, applyEditBatch } from './api';
-import { SystemStatusResponse, Session, Cue, EditBatch } from './types';
+import { fetchHealth, fetchSystemStatus, createSession, applyEditBatch, fetchCatalogAssets } from './api';
+import { SystemStatusResponse, Session, Cue, EditBatch, Asset } from './types';
 import { audioEngine } from './audio/engine';
 import { Stage } from './components/Stage';
 import { Timeline } from './components/Timeline';
 import { DirectionPanel } from './components/DirectionPanel';
-import { Radio } from 'lucide-react';
+import { AssetLibrary } from './components/AssetLibrary';
+import { Radio, Volume2 } from 'lucide-react';
 
 const INITIAL_SESSION: Session = {
   id: 'voltra_rehearsal_master',
   owner_uid: 'director_master_local',
   revision: 0,
-  scene_duration_ms: 30000,
+  scene_duration_ms: 10000,
   protected_track_ids: ['dialogue'],
-  cues: [
-    {
-      id: 'dialogue_hero_01',
-      asset_id: 'asset_dialogue_hero',
-      source_in_ms: 0,
-      source_out_ms: 4000,
-      timeline_start_ms: 1000,
-      gain_db: -1.5,
-      pan: 0.0,
-      envelope_points: [
-        { offset_ms: 0, level: 0.0 },
-        { offset_ms: 200, level: 1.0 },
-        { offset_ms: 3800, level: 1.0 },
-        { offset_ms: 4000, level: 0.0 },
-      ],
-      track_id: 'dialogue',
-    },
-  ],
+  cues: [],
   status: 'idle',
   updated_at: new Date().toISOString(),
 };
@@ -38,6 +22,8 @@ const INITIAL_SESSION: Session = {
 export default function App() {
   const [health, setHealth] = useState<{ status: string; app: string; version: string } | null>(null);
   const [sysStatus, setSysStatus] = useState<SystemStatusResponse | null>(null);
+  const [catalogAssets, setCatalogAssets] = useState<Asset[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +32,7 @@ export default function App() {
   const [currentTimeMs, setCurrentTimeMs] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [audioReady, setAudioReady] = useState<boolean>(false);
+  const [videoFrameB64, setVideoFrameB64] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
@@ -63,8 +50,23 @@ export default function App() {
     }
   };
 
+  const loadCatalog = async () => {
+    try {
+      setCatalogLoading(true);
+      const res = await fetchCatalogAssets();
+      setCatalogAssets(res.assets || []);
+      // Preload initial session cues
+      audioEngine.preloadSessionCues(session.cues, res.assets || []);
+    } catch (err) {
+      console.warn('Could not load catalog assets:', err);
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
   useEffect(() => {
     refreshStatus();
+    loadCatalog();
 
     // Attach AudioEngine event callbacks
     audioEngine.setOnTimeUpdate((timeMs) => {
@@ -80,6 +82,9 @@ export default function App() {
   const handleEnableAudio = async () => {
     const ready = await audioEngine.initAudio();
     setAudioReady(ready);
+    if (ready) {
+      audioEngine.preloadSessionCues(session.cues, catalogAssets);
+    }
   };
 
   const handleTogglePlay = () => {
@@ -103,7 +108,6 @@ export default function App() {
   };
 
   const handleUpdateCue = (updatedCue: Cue) => {
-    // Stop active audio to prevent duplicate or ghost playback on edit
     audioEngine.stopAllSources();
     setSession((prev) => ({
       ...prev,
@@ -154,11 +158,10 @@ export default function App() {
         rationale_summary: `Manual rehearsal treatment edit at revision ${session.revision + 1}`,
       };
 
-      // Try creating session first if new, then commit edits
       try {
         await createSession(session);
       } catch {
-        // May already exist in Firestore
+        // Session may exist
       }
 
       const res = await applyEditBatch(session.id, batch);
@@ -181,12 +184,12 @@ export default function App() {
       <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <Radio size={28} color="#6366f1" />
-            <span>VoltraPROD: Sound Rehearsal Studio</span>
-            <span className="badge badge-success">Run 2: Media Engine</span>
+            <Radio size={26} color="#3B82F6" />
+            <span>VoltraPROD: AI Sound Rehearsal Studio</span>
+            <span className="badge badge-brand">Run 3: Agent Loop</span>
           </h1>
           <p>
-            Agentic Cinema Sound Design &amp; Playback Rehearsal — Web Audio Scheduling, Multi-Track Editing &amp; Firestore Revisions
+            Agentic Cinema Sound Design Rehearsal — Gemini 3.1 Agent, ClickHouse Cloud MCP, Firestore Revisions &amp; Browser Playback
           </p>
         </div>
 
@@ -195,16 +198,25 @@ export default function App() {
           <span className={`badge ${health?.status === 'ok' ? 'badge-success' : 'badge-error'}`}>
             Backend: {health?.status === 'ok' ? 'Online' : 'Offline'}
           </span>
-          <span className={`badge ${audioReady ? 'badge-success' : 'badge-warning'}`}>
-            Web Audio: {audioReady ? 'Active' : 'Muted (Tap Enable)'}
-          </span>
+          <button
+            onClick={handleEnableAudio}
+            style={{
+              padding: '0.3rem 0.75rem',
+              fontSize: '0.75rem',
+              background: audioReady ? '#10B981' : '#F59E0B',
+              borderColor: 'transparent',
+            }}
+          >
+            <Volume2 size={13} />
+            {audioReady ? 'Audio Enabled' : 'Enable Audio (Required)'}
+          </button>
         </div>
       </header>
 
       {/* Backend Disconnect Alert */}
       {error && (
-        <div className="card" style={{ borderColor: '#ef4444' }}>
-          <p style={{ color: '#f87171' }}>Backend connectivity offline: {error}</p>
+        <div className="card" style={{ borderColor: '#EF4444' }}>
+          <p style={{ color: '#EF4444' }}>Backend connectivity offline: {error}</p>
           <button onClick={refreshStatus} style={{ alignSelf: 'flex-start', marginTop: '0.5rem' }}>
             Retry Connection
           </button>
@@ -214,22 +226,22 @@ export default function App() {
       {/* Integration Badges Bar */}
       <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
         <div className="card" style={{ flex: 1, minWidth: '220px', padding: '0.6rem 0.8rem' }}>
-          <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Gemini Developer API</div>
-          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: sysStatus?.integrations.gemini.configured ? '#4ade80' : '#facc15' }}>
-            {sysStatus?.integrations.gemini.configured ? `Configured (${sysStatus.integrations.gemini.model})` : 'Unavailable'}
+          <div style={{ fontSize: '0.72rem', color: '#A1A1AA' }}>Gemini Developer API</div>
+          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: sysStatus?.integrations.gemini.configured ? '#10B981' : '#F59E0B' }}>
+            {sysStatus?.integrations.gemini.configured ? `Active (${sysStatus.integrations.gemini.model})` : 'Unavailable'}
           </div>
         </div>
 
         <div className="card" style={{ flex: 1, minWidth: '220px', padding: '0.6rem 0.8rem' }}>
-          <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>ClickHouse Cloud MCP</div>
-          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: sysStatus?.integrations.clickhouse.configured ? '#4ade80' : '#facc15' }}>
+          <div style={{ fontSize: '0.72rem', color: '#A1A1AA' }}>ClickHouse Cloud MCP</div>
+          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: sysStatus?.integrations.clickhouse.configured ? '#10B981' : '#F59E0B' }}>
             {sysStatus?.integrations.clickhouse.configured ? 'Connected (MCP Read-Only)' : 'Unavailable'}
           </div>
         </div>
 
         <div className="card" style={{ flex: 1, minWidth: '220px', padding: '0.6rem 0.8rem' }}>
-          <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Firestore Revisions</div>
-          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: sysStatus?.integrations.firestore.configured ? '#4ade80' : '#facc15' }}>
+          <div style={{ fontSize: '0.72rem', color: '#A1A1AA' }}>Firestore Revisions</div>
+          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: sysStatus?.integrations.firestore.configured ? '#10B981' : '#F59E0B' }}>
             {sysStatus?.integrations.firestore.configured ? 'Active (Spark Plan)' : 'Unavailable'}
           </div>
         </div>
@@ -244,6 +256,25 @@ export default function App() {
         onTogglePlay={handleTogglePlay}
         audioReady={audioReady}
         onEnableAudio={handleEnableAudio}
+        onFrameCaptured={setVideoFrameB64}
+      />
+
+      {/* Sound Catalog Library */}
+      <AssetLibrary assets={catalogAssets} isLoading={catalogLoading} onRefresh={loadCatalog} />
+
+      {/* Director Console: AI Direction, Live Traces, Audition & Feedback */}
+      <DirectionPanel
+        session={session}
+        onUpdateSession={(updated) => {
+          setSession(updated);
+          audioEngine.preloadSessionCues(updated.cues, catalogAssets);
+        }}
+        catalogAssets={catalogAssets}
+        videoFrameB64={videoFrameB64}
+        onAddCue={handleAddCue}
+        onCommitRevision={handleCommitRevision}
+        isSaving={isSaving}
+        saveMessage={saveMessage}
       />
 
       {/* Interactive Multi-Track Timeline */}
@@ -253,15 +284,6 @@ export default function App() {
         onSeek={handleSeek}
         onUpdateCue={handleUpdateCue}
         onDeleteCue={handleDeleteCue}
-      />
-
-      {/* Media Import, Cue Placement, and Export Drawer */}
-      <DirectionPanel
-        session={session}
-        onAddCue={handleAddCue}
-        onCommitRevision={handleCommitRevision}
-        isSaving={isSaving}
-        saveMessage={saveMessage}
       />
     </div>
   );

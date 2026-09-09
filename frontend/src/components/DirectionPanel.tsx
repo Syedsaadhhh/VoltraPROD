@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
-import { Upload, Download, FileJson, PlusCircle, AlertCircle } from 'lucide-react';
+import { Sparkles, Send, ThumbsUp, ThumbsDown, Play, Upload, Download, FileJson, Database, Shield } from 'lucide-react';
 import { audioEngine } from '../audio/engine';
 import { exportAuditionWav, exportSessionJson } from '../audio/render';
-import { Session, Cue, Asset } from '../types';
+import { Session, Cue, Asset, ToolTrace, DirectorDirectionResponse } from '../types';
+import { sendDirection, submitAuditionFeedback } from '../api';
 
 interface DirectionPanelProps {
   session: Session;
+  onUpdateSession: (updated: Session) => void;
+  catalogAssets: Asset[];
+  videoFrameB64?: string | null;
   onAddCue: (newCue: Cue) => void;
   onCommitRevision: () => void;
   isSaving: boolean;
@@ -14,16 +18,127 @@ interface DirectionPanelProps {
 
 export const DirectionPanel: React.FC<DirectionPanelProps> = ({
   session,
+  onUpdateSession,
+  catalogAssets,
+  videoFrameB64,
   onAddCue,
   onCommitRevision,
   isSaving,
   saveMessage,
 }) => {
+  // Director Prompt State
+  const [instruction, setInstruction] = useState<string>('Add faint, deliberate footsteps on wood before the hero speaks.');
+  const [sceneBeats, setSceneBeats] = useState<string>('Night interior, empty cabin. Protagonist standing frozen near the door.');
+  const [isDirecting, setIsDirecting] = useState<boolean>(false);
+  const [directionResponse, setDirectionResponse] = useState<DirectorDirectionResponse | null>(null);
+  const [excludedAssetIds, setExcludedAssetIds] = useState<string[]>([]);
+  const [feedbackStatus, setFeedbackStatus] = useState<string | null>(null);
+
+  // Manual Import / Cue State
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const [localAssets, setLocalAssets] = useState<Asset[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState<string>('');
   const [targetTrack, setTargetTrack] = useState<string>('foley');
   const [startOffsetMs, setStartOffsetMs] = useState<number>(1000);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+
+  const handleSendDirection = async (customInstruction?: string, extraExcluded?: string[]) => {
+    const textToSend = customInstruction || instruction;
+    if (!textToSend.trim()) return;
+
+    try {
+      setIsDirecting(true);
+      setFeedbackStatus(null);
+      await audioEngine.initAudio();
+
+      const toExclude = extraExcluded ? [...excludedAssetIds, ...extraExcluded] : excludedAssetIds;
+
+      const res = await sendDirection(session.id, {
+        instruction: textToSend,
+        base_revision: session.revision,
+        scene_beats: sceneBeats || undefined,
+        video_frame_b64: videoFrameB64 || undefined,
+        excluded_asset_ids: toExclude,
+      });
+
+      setDirectionResponse(res);
+
+      if (res.updated_session) {
+        onUpdateSession(res.updated_session);
+        // Preload any newly placed cues into browser audio buffer
+        await audioEngine.preloadSessionCues(res.updated_session.cues, catalogAssets);
+      }
+    } catch (err: any) {
+      setFeedbackStatus(`Direction failed: ${err.message}`);
+    } finally {
+      setIsDirecting(false);
+    }
+  };
+
+  const handleAuditionTreatment = async () => {
+    await audioEngine.initAudio();
+    // Play from the beginning of the newest cue or from 0
+    const nonDialogueCues = session.cues.filter((c) => c.track_id !== 'dialogue');
+    const startMs = nonDialogueCues.length > 0 ? nonDialogueCues[nonDialogueCues.length - 1].timeline_start_ms : 0;
+    audioEngine.play(session, Math.max(0, startMs - 200));
+  };
+
+  const handleAcceptTreatment = async () => {
+    const nonDialogueCues = session.cues.filter((c) => c.track_id !== 'dialogue');
+    const assetIds = nonDialogueCues.map((c) => c.asset_id);
+    if (assetIds.length === 0) return;
+
+    try {
+      setFeedbackStatus('Recording acceptance in ClickHouse event store...');
+      await submitAuditionFeedback(session.id, {
+        event_id: `evt_acc_${Date.now().toString(36)}`,
+        session_id: session.id,
+        revision: session.revision,
+        asset_ids: assetIds,
+        accepted_or_rejected_or_unrated: 'accepted',
+        director_text: instruction,
+        observed_at: new Date().toISOString(),
+      });
+      setFeedbackStatus('Audition accepted! Saved to ClickHouse audition history.');
+    } catch (err: any) {
+      setFeedbackStatus(`Feedback error: ${err.message}`);
+    }
+  };
+
+  const handleRejectAndRedirection = async () => {
+    // Find the latest proposed non-dialogue asset
+    const nonDialogueCues = session.cues.filter((c) => c.track_id !== 'dialogue');
+    if (nonDialogueCues.length === 0) {
+      setFeedbackStatus('No auditioned sound to reject.');
+      return;
+    }
+
+    const rejectedCue = nonDialogueCues[nonDialogueCues.length - 1];
+    const rejectedAssetId = rejectedCue.asset_id;
+
+    // Immediately exclude this asset
+    const updatedExclusions = Array.from(new Set([...excludedAssetIds, rejectedAssetId]));
+    setExcludedAssetIds(updatedExclusions);
+
+    try {
+      setFeedbackStatus(`Rejected '${rejectedAssetId}'. Logging to ClickHouse and requesting fresh candidate...`);
+      await submitAuditionFeedback(session.id, {
+        event_id: `evt_rej_${Date.now().toString(36)}`,
+        session_id: session.id,
+        revision: session.revision,
+        asset_ids: [rejectedAssetId],
+        accepted_or_rejected_or_unrated: 'rejected',
+        director_text: `Rejected asset ${rejectedAssetId}; requesting alternative`,
+        observed_at: new Date().toISOString(),
+      });
+
+      // Automatically replan with a fresh query excluding this asset
+      const revisedPrompt = `The previous sound '${rejectedAssetId}' was rejected. Please select a completely different available sound candidate for this cue.`;
+      await handleSendDirection(revisedPrompt, [rejectedAssetId]);
+    } catch (err: any) {
+      setFeedbackStatus(`Rejection error: ${err.message}`);
+    }
+  };
 
   const handleAudioImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -68,7 +183,8 @@ export const DirectionPanel: React.FC<DirectionPanelProps> = ({
       return;
     }
 
-    const asset = localAssets.find((a) => a.id === selectedAssetId);
+    const allAvailable = [...catalogAssets, ...localAssets];
+    const asset = allAvailable.find((a) => a.id === selectedAssetId);
     const duration = asset ? asset.duration_ms : 1000;
 
     const cueId = `cue_${Date.now().toString(36).slice(-4)}`;
@@ -103,162 +219,296 @@ export const DirectionPanel: React.FC<DirectionPanelProps> = ({
   };
 
   return (
-    <div className="card" style={{ padding: '1rem', background: '#0f172a', borderColor: '#1e293b' }}>
-      <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#f8fafc', marginBottom: '0.75rem' }}>
-        Media Import &amp; Rehearsal Actions
-      </h3>
-
-      {/* Local Media Import Dropzone */}
-      <div
-        style={{
-          border: '1px dashed #3b82f6',
-          borderRadius: '0.5rem',
-          padding: '1rem',
-          textAlign: 'center',
-          background: 'rgba(59, 130, 246, 0.05)',
-        }}
-      >
-        <Upload size={24} color="#60a5fa" style={{ margin: '0 auto 0.25rem' }} />
-        <p style={{ fontSize: '0.85rem', fontWeight: 500 }}>Import Real Audio Recordings</p>
-        <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: '0.25rem 0 0.5rem' }}>
-          Supports .wav, .mp3, .ogg, .m4a. Decodes real duration, sample rate, and channels.
-        </p>
-
-        <label
-          style={{
-            display: 'inline-block',
-            background: '#2563eb',
-            color: '#ffffff',
-            padding: '0.35rem 0.8rem',
-            borderRadius: '0.375rem',
-            fontSize: '0.8rem',
-            cursor: 'pointer',
-          }}
-        >
-          Select Audio File
-          <input
-            type="file"
-            accept="audio/*"
-            onChange={handleAudioImport}
-            style={{ display: 'none' }}
-          />
-        </label>
-      </div>
-
-      {/* Warning regarding browser-local media */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: '0.4rem',
-          marginTop: '0.5rem',
-          fontSize: '0.72rem',
-          color: '#cbd5e1',
-          background: '#1e293b',
-          padding: '0.4rem 0.6rem',
-          borderRadius: '0.375rem',
-        }}
-      >
-        <AlertCircle size={14} color="#facc15" style={{ flexShrink: 0, marginTop: '2px' }} />
-        <span>
-          <strong>Session-local media:</strong> Imported browser files are held in local memory for this rehearsal session. They do not persist across devices or page reloads. Raw media blobs are never sent to Firestore or ClickHouse.
+    <div className="card" style={{ background: '#18181B', borderColor: '#27272A', padding: '1.25rem', gap: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: '#FAFAFA', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Sparkles size={18} color="#8B5CF6" />
+          <span>AI Director Console</span>
+          <span className="badge badge-brand" style={{ fontSize: '0.68rem' }}>Gemini Agent + ClickHouse MCP</span>
+        </h3>
+        <span style={{ fontSize: '0.78rem', color: '#A1A1AA', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+          <Shield size={14} color="#10B981" /> Protected Dialogue Track Locked
         </span>
       </div>
 
-      {importStatus && (
-        <div style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#38bdf8' }}>
-          {importStatus}
+      {/* Creative Instruction Input Form */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="secondary"
+            style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+            onClick={() => setInstruction('Add faint, deliberate footsteps on wood before the hero speaks.')}
+          >
+            Wood Footsteps
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+            onClick={() => setInstruction('Add tense concrete steps approaching from the right at 1 second.')}
+          >
+            Concrete Footsteps
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+            onClick={() => setInstruction('Cue a slow, ominous door creak right before the dialogue begins.')}
+          >
+            Door Creak
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+            onClick={() => setInstruction('Add hollow, cold room ambience in the background at -12 dB.')}
+          >
+            Cold Ambience
+          </button>
         </div>
-      )}
 
-      {/* Manual Cue Placement Controls */}
-      <div style={{ marginTop: '1rem', borderTop: '1px solid #1e293b', paddingTop: '0.75rem' }}>
-        <h4 style={{ fontSize: '0.85rem', color: '#cbd5e1', marginBottom: '0.5rem' }}>
-          Place Cue on Timeline
-        </h4>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <select
-            value={selectedAssetId}
-            onChange={(e) => setSelectedAssetId(e.target.value)}
-            style={{ background: '#0b0f19', color: '#fff', border: '1px solid #475569', borderRadius: '4px', padding: '0.3rem', fontSize: '0.75rem' }}
-          >
-            <option value="">-- Select Loaded Asset --</option>
-            {localAssets.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.source_description} ({(a.duration_ms / 1000).toFixed(1)}s)
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={targetTrack}
-            onChange={(e) => setTargetTrack(e.target.value)}
-            style={{ background: '#0b0f19', color: '#fff', border: '1px solid #475569', borderRadius: '4px', padding: '0.3rem', fontSize: '0.75rem' }}
-          >
-            <option value="foley">Foley Track</option>
-            <option value="sfx">SFX Track</option>
-            <option value="ambience">Ambience Track</option>
-          </select>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>At:</span>
-            <input
-              type="number"
-              value={startOffsetMs}
-              onChange={(e) => setStartOffsetMs(parseInt(e.target.value) || 0)}
-              style={{ width: '70px', background: '#0b0f19', color: '#fff', border: '1px solid #475569', borderRadius: '4px', padding: '0.3rem', fontSize: '0.75rem' }}
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <div style={{ flex: 2, minWidth: '280px' }}>
+            <label style={{ display: 'block', fontSize: '0.78rem', color: '#A1A1AA', marginBottom: '0.25rem' }}>
+              Director Creative Direction:
+            </label>
+            <textarea
+              rows={2}
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              placeholder="Enter sound direction (e.g. 'Add faint footsteps on wood before she speaks')..."
+              style={{ width: '100%', resize: 'vertical' }}
             />
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>ms</span>
           </div>
 
+          <div style={{ flex: 1, minWidth: '220px' }}>
+            <label style={{ display: 'block', fontSize: '0.78rem', color: '#A1A1AA', marginBottom: '0.25rem' }}>
+              Scene Context (<span style={{ color: '#F59E0B' }}>User Supplied</span>):
+            </label>
+            <textarea
+              rows={2}
+              value={sceneBeats}
+              onChange={(e) => setSceneBeats(e.target.value)}
+              placeholder="Scene beats or action description..."
+              style={{ width: '100%', resize: 'vertical' }}
+            />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.75rem', color: '#71717A' }}>
+            Excluded assets this turn: {excludedAssetIds.length > 0 ? excludedAssetIds.join(', ') : 'None'}
+          </span>
           <button
-            onClick={handleAddManualCue}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.35rem 0.7rem', fontSize: '0.8rem' }}
+            onClick={() => handleSendDirection()}
+            disabled={isDirecting || !instruction.trim()}
+            style={{ padding: '0.5rem 1.25rem', fontSize: '0.85rem' }}
           >
-            <PlusCircle size={14} /> Place Cue
+            <Send size={15} />
+            {isDirecting ? 'Agent Rehearsing (Querying MCP)...' : 'Direct Sound Treatment'}
           </button>
         </div>
       </div>
 
-      {/* Session Export and Commit Actions */}
-      <div
-        style={{
-          marginTop: '1rem',
-          borderTop: '1px solid #1e293b',
-          paddingTop: '0.75rem',
-          display: 'flex',
-          gap: '0.5rem',
-          flexWrap: 'wrap',
-        }}
-      >
-        <button
-          onClick={handleExportWav}
-          style={{ background: '#059669', borderColor: '#059669', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem' }}
+      {/* Agent Response & Live Action Summary */}
+      {directionResponse && (
+        <div
+          style={{
+            background: '#09090B',
+            border: '1px solid #27272A',
+            borderRadius: '0.5rem',
+            padding: '0.85rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem',
+          }}
         >
-          <Download size={14} /> Export Audition WAV
-        </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#FAFAFA' }}>
+              {directionResponse.action_summary}
+            </span>
+            <span
+              className={`badge ${
+                directionResponse.status === 'success'
+                  ? 'badge-success'
+                  : directionResponse.status === 'quota_exceeded'
+                  ? 'badge-warning'
+                  : 'badge-error'
+              }`}
+            >
+              {directionResponse.status}
+            </span>
+          </div>
 
-        <button
-          onClick={() => exportSessionJson(session)}
-          style={{ background: '#475569', borderColor: '#475569', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem' }}
-        >
-          <FileJson size={14} /> Export Session JSON
-        </button>
+          {directionResponse.rationale && (
+            <p style={{ fontSize: '0.78rem', color: '#A1A1AA' }}>
+              <strong>Rationale:</strong> {directionResponse.rationale}
+            </p>
+          )}
 
-        <button
-          onClick={onCommitRevision}
-          disabled={isSaving}
-          style={{ marginLeft: 'auto', fontSize: '0.8rem' }}
-        >
-          {isSaving ? 'Committing...' : `Commit Revision ${session.revision + 1} to Firestore`}
-        </button>
-      </div>
+          {/* Tool Traces Feed */}
+          {directionResponse.tool_traces.length > 0 && (
+            <div style={{ borderTop: '1px solid #27272A', paddingTop: '0.4rem' }}>
+              <span style={{ fontSize: '0.72rem', color: '#71717A', display: 'block', marginBottom: '0.25rem' }}>
+                Tool Execution Pipeline:
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                {directionResponse.tool_traces.map((trace: ToolTrace, i: number) => (
+                  <div
+                    key={i}
+                    style={{
+                      fontSize: '0.72rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      color: '#E4E4E7',
+                      background: '#18181B',
+                      padding: '0.2rem 0.5rem',
+                      borderRadius: '4px',
+                    }}
+                  >
+                    <Database size={12} color="#3B82F6" />
+                    <code style={{ fontSize: '0.7rem', color: '#60A5FA' }}>{trace.tool}</code>
+                    <span>{trace.summary}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-      {saveMessage && (
-        <div style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#38bdf8' }}>
-          {saveMessage}
+          {/* Rehearsal Audition & Feedback Actions */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderTop: '1px solid #27272A',
+              paddingTop: '0.6rem',
+              marginTop: '0.2rem',
+              flexWrap: 'wrap',
+              gap: '0.5rem',
+            }}
+          >
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                onClick={handleAuditionTreatment}
+                style={{ background: '#8B5CF6', borderColor: '#8B5CF6', fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
+              >
+                <Play size={14} /> Audition Treatment
+              </button>
+              <button
+                onClick={handleAcceptTreatment}
+                style={{ background: '#10B981', borderColor: '#10B981', fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
+              >
+                <ThumbsUp size={14} /> Accept Treatment
+              </button>
+              <button
+                onClick={handleRejectAndRedirection}
+                className="danger"
+                style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
+              >
+                <ThumbsDown size={14} /> Reject Sound &amp; Re-direct
+              </button>
+            </div>
+
+            <span style={{ fontSize: '0.75rem', color: '#10B981' }}>
+              Revision: {session.revision} (Firestore Synchronized)
+            </span>
+          </div>
         </div>
       )}
+
+      {feedbackStatus && (
+        <div style={{ fontSize: '0.78rem', color: '#60A5FA', background: 'rgba(59, 130, 246, 0.1)', padding: '0.4rem 0.6rem', borderRadius: '4px' }}>
+          {feedbackStatus}
+        </div>
+      )}
+
+      {/* Collapsible Manual Controls & Export Drawer */}
+      <div style={{ borderTop: '1px solid #27272A', paddingTop: '0.5rem' }}>
+        <button
+          className="secondary"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+        >
+          {showAdvanced ? 'Hide Manual Controls' : 'Show Manual Media Import & Export'}
+        </button>
+
+        {showAdvanced && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.75rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <label
+                style={{
+                  background: '#27272A',
+                  color: '#FAFAFA',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: '0.375rem',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                  border: '1px solid #3F3F46',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                }}
+              >
+                <Upload size={13} /> Import Local Sound File
+                <input type="file" accept="audio/*" onChange={handleAudioImport} style={{ display: 'none' }} />
+              </label>
+
+              <select
+                value={selectedAssetId}
+                onChange={(e) => setSelectedAssetId(e.target.value)}
+                style={{ fontSize: '0.75rem', padding: '0.3rem' }}
+              >
+                <option value="">-- Choose Asset to Place --</option>
+                {[...catalogAssets, ...localAssets].map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.source_description || a.id} ({(a.duration_ms / 1000).toFixed(1)}s)
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={targetTrack}
+                onChange={(e) => setTargetTrack(e.target.value)}
+                style={{ fontSize: '0.75rem', padding: '0.3rem' }}
+              >
+                <option value="foley">Foley Track</option>
+                <option value="sfx">SFX Track</option>
+                <option value="ambience">Ambience Track</option>
+              </select>
+
+              <input
+                type="number"
+                value={startOffsetMs}
+                onChange={(e) => setStartOffsetMs(parseInt(e.target.value) || 0)}
+                style={{ width: '75px', fontSize: '0.75rem', padding: '0.3rem' }}
+              />
+              <span style={{ fontSize: '0.75rem', color: '#A1A1AA' }}>ms</span>
+
+              <button onClick={handleAddManualCue} style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem' }}>
+                Place Cue
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button onClick={handleExportWav} style={{ background: '#059669', borderColor: '#059669', fontSize: '0.75rem' }}>
+                <Download size={13} /> Export Audition WAV
+              </button>
+              <button onClick={() => exportSessionJson(session)} className="secondary" style={{ fontSize: '0.75rem' }}>
+                <FileJson size={13} /> Export Session JSON
+              </button>
+              <button onClick={onCommitRevision} disabled={isSaving} style={{ marginLeft: 'auto', fontSize: '0.75rem' }}>
+                {isSaving ? 'Committing...' : `Commit Revision ${session.revision + 1} to Firestore`}
+              </button>
+            </div>
+
+            {importStatus && <div style={{ fontSize: '0.75rem', color: '#60A5FA' }}>{importStatus}</div>}
+            {saveMessage && <div style={{ fontSize: '0.75rem', color: '#60A5FA' }}>{saveMessage}</div>}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

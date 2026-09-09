@@ -1,132 +1,119 @@
-# VoltraPROD Build State — Run 1 & Run 2 Complete
+# VoltraPROD Build State — Run 1, Run 2 & Run 3 Complete
 
 Date: September 9, 2026  
-Status: Run 1 Complete (Live Integrations Verified) & Run 2 Complete (Media Engine & Editable Playback Operational)  
-Current State: Run 2 Complete  
-Next Run: Run 3 (Chunk 3 — Gemini Agent Loop & ClickHouse Candidate Retrieval)
+Status: Run 1 Complete (Live Integrations Verified), Run 2 Complete (Media Engine & Editable Playback Operational), Run 3 Complete (Gemini Agent Loop, ClickHouse MCP Candidate Retrieval & Audition Cycle Operational)  
+Current State: Run 3 Complete  
+Next Run: Run 4 (Chunk 4 — Production Packaging, Hardening & Render Deployment)
 
 ---
 
 ## 1. Executive Summary
 
-VoltraPROD is an AI-directed sound rehearsal studio. Run 1 established the backend architecture, typed domain contracts, Firebase Firestore session revision store, Google GenAI Developer API integration, and official ClickHouse MCP connectivity. Run 2 built the deterministic browser Web Audio playback scheduler, offline WAV and JSON session exporters, interactive multi-track stage and timeline UI, and session-local media isolation architecture.
+VoltraPROD is an AI-directed sound rehearsal studio.
+- **Run 1**: Established the backend architecture, typed domain contracts, Firebase Firestore session revision store, Google GenAI Developer API integration, and official ClickHouse MCP connectivity over HTTPS port 8443.
+- **Run 2**: Built the deterministic browser Web Audio playback scheduler, offline WAV and JSON session exporters, interactive multi-track stage and timeline UI, and session-local media isolation architecture.
+- **Run 3**: Implemented the end-to-end Gemini agent loop (`gemini-3.1-flash-lite`) with ClickHouse MCP sound candidate retrieval, bounded tool turns, protected track safeguards (`dialogue` track locked), audition feedback ingestion, dark-mode UI workstation styling (`#09090B`, `#18181B`, `#27272A`, `#3B82F6`), `assets/raw/scene.mp4` video analysis and integration, and full media provenance tracking.
 
-All four live integration gates have passed with real credentials. The test suite passes with 100% success (11/11 tests).
-
----
-
-## 2. Integration Verification Gates (Part A Results)
-
-Preflight script: scripts/preflight.py
-
-| Gate | Target Service | Discovery / Execution Result | Status |
-| :--- | :--- | :--- | :---: |
-| **Gate 1** | **Google GenAI / ADK** | Pinned to model gemini-3.1-flash-lite via Gemini Developer API (AI Studio key). Model list probe verified; function call declaration lookup_catalog_asset with tag 'footsteps' executed successfully. | **[SUCCESS]** |
-| **Gate 2** | **Official ClickHouse MCP** | Official mcp-clickhouse v0.6.0 server invoked over FastMCP client. Discovered tools: list_databases, list_tables, 
-un_query. Executed probe SELECT 1 AS probe against ClickHouse Cloud over port 8443 (HTTPS). | **[SUCCESS]** |
-| **Gate 3** | **Firebase Firestore** | Connected using service account on free Spark tier. Executed live roundtrip write to _probe/test_p, read validation, and clean deletion. Monotonic revision transaction engine ready. | **[SUCCESS]** |
-| **Gate 4** | **FastAPI Health** | HTTP GET /health returned 200 OK (status: healthy, pp: sound-rehearsal, ersion: 0.1.0). | **[SUCCESS]** |
-
-### ClickHouse Catalog & Role Configuration
-- Database: default
-- Tables seeded via sql/001_catalog.sql and scripts/seed_catalog.py:
-  - sound_assets: Canonical sound catalog with duration, loudness, tempo, tags, and license metadata.
-  - udition_events: Telemetry table for director auditions and candidate evaluations.
-  - playback_events: Telemetry table for timeline playback acknowledgements and latency tracking.
-- Dedicated Reader Role: sound_rehearsal_reader granted SELECT ON default.*.
+The entire backend test suite passes with 100% success (16/16 tests), and the frontend compiles to a production bundle with 0 errors.
 
 ---
 
-## 3. Implemented Components (Run 1 & Run 2)
+## 2. Media Provenance & Inspection Analysis
 
-### Backend (ackend/app/)
-- config.py: Centralized Pydantic settings. Sanitizes ClickHouse hosts (stripping protocol-relative slashes and URLs) and formats raw Firebase private keys.
-- models.py: Authoritative domain models (Asset, Cue, Session, DirectorInstruction, EditBatch, ToolResult, PlaybackAck, AuditionFeedback) with strict numerical bounds (pan [-1, 1], gain [-60, 0] dB, start offset, duration).
-- uth.py: Firebase ID token Bearer verification. Enforces user session ownership and rejects unverified test-token bypasses.
-- irestore_store.py: Optimistic concurrency control (expected_revision), atomic monotonic revision increments, operation_id deduplication, and protected dialogue track enforcement.
-- mcp_client.py: Official mcp-clickhouse client running under FastMCP with 60s timeout safeguards and process cleanup.
-- gent.py: Google GenAI client targeting gemini-3.1-flash-lite.
-- 	ools.py: Domain rehearsal tools (ind_sound_candidates, 
-ecall_auditions, inspect_session).
-- event_sink.py: Asynchronous ClickHouse telemetry ingestion for playback and audition events.
-- main.py: FastAPI server with CORS, health endpoints, revision mutation APIs, and static SPA serving.
+### Audio Origin & Provenance Table
+All demo audio files were synthesized directly within this workspace using Python 3 standard library `wave` and `math` routines in `scripts/generate_demo_audio.py` (16-bit stereo PCM, 44.1 kHz). They are traceable, deterministic, free of external copyright encumbrances, and safe for public deployment under the project MIT license.
 
-### Media & Playback Engine (rontend/src/ & scripts/)
-- scripts/inspect_media.py: CLI and library for probing raw audio files (WAV, MP3, OGG, FLAC) using standard library wave and mutagen fallback. Generates ssets/manifest.json with duration_ms, sample_rate, channels, and sha256 checksums. Supports direct ClickHouse catalog seeding.
-- ssets/ATTRIBUTION.md: Licensing declarations and media isolation rules.
-- rontend/src/audio/engine.ts: Web Audio API playback engine.
-  - User-gesture initialization (udioContext.resume() on explicit button click).
-  - Gain conversion:  = 10^{dB/20}$.
-  - Equal-power stereo panning via StereoPannerNode.
-  - Linear gain attack/decay envelopes to prevent audio clicks.
-  - Master dynamics compressor to prevent clipping distortion.
-  - Immediate audio source stop and node disconnection on seek, pause, or cue edit.
-- rontend/src/audio/render.ts:
-  - Deterministic offline bounce using OfflineAudioContext.
-  - Encodes 16-bit stereo PCM WAV binary blob and triggers browser download.
-  - Exports standard VoltraPROD session JSON file.
-- rontend/src/components/Stage.tsx: Video and audio monitor with live A/V drift calculation (|video.currentTime - audio.currentTime|).
-- rontend/src/components/Timeline.tsx: Multi-track interactive visual timeline (Dialogue [Protected], Foley, FX, Ambience, Music) with playhead scrubbing and cue inspector.
-- rontend/src/components/DirectionPanel.tsx: Local audio file importer, cue placement controls, WAV/JSON export buttons, and Firestore revision commit.
-- rontend/src/firebase.ts: Firebase client SDK configured for anonymous authentication.
-- rontend/src/api.ts: API client attaching Bearer ID tokens.
-- rontend/src/App.tsx: VoltraPROD main workstation shell with unified state management and real-time backend connection status.
+| Filename | Duration | Origin | Type | License / Source | Status in Demo Bundle |
+| :--- | :---: | :--- | :--- | :--- | :---: |
+| `footsteps_wood_01.wav` | 3.000s | `scripts/generate_demo_audio.py` | Synthesized test fixture (180/360 Hz decaying wood taps) | Project MIT | Approved & Active (`/demo/footsteps_wood_01.wav`) |
+| `footsteps_concrete_01.wav` | 3.000s | `scripts/generate_demo_audio.py` | Synthesized test fixture (820/1640 Hz sharp transient clicks) | Project MIT | Approved & Active (`/demo/footsteps_concrete_01.wav`) |
+| `door_creak_slow_01.wav` | 2.500s | `scripts/generate_demo_audio.py` | Synthesized test fixture (280–400 Hz FM modulated creak) | Project MIT | Approved & Active (`/demo/door_creak_slow_01.wav`) |
+| `cloth_rustle_jacket_01.wav` | 2.000s | `scripts/generate_demo_audio.py` | Synthesized test fixture (bandpass filtered noise bursts) | Project MIT | Approved & Active (`/demo/cloth_rustle_jacket_01.wav`) |
+| `ambient_wind_hollow_01.wav` | 8.000s | `scripts/generate_demo_audio.py` | Synthesized test fixture (90–140 Hz drifting hollow drone) | Project MIT | Approved & Active (`/demo/ambient_wind_hollow_01.wav`) |
+| `tense_drone_low_01.wav` | 6.000s | `scripts/generate_demo_audio.py` | Synthesized test fixture (55 Hz sub-oscillator with 0.6 Hz beat) | Project MIT | Approved & Active (`/demo/tense_drone_low_01.wav`) |
+| `dialogue_hero_01.wav` | 4.000s | `scripts/generate_demo_audio.py` | Synthesized test fixture (formant vocal cadence carrier) | Project MIT | Excluded from default silent scene; available in catalog |
+
+> [!NOTE]
+> **Audio Audition Capability Disclosure**: Direct listening audition (physical acoustic hearing) is physically unavailable to an AI agent without physical ears. Sound analysis and candidate selection are derived from decoded PCM parameters, sample rates, channel layouts, duration bounds, spectral envelope tags, and metadata recorded in ClickHouse.
+
+### Video Analysis (`assets/raw/scene.mp4`)
+- **Container / Encoding**: ISO BMFF MP4, AVC/H.264 video track, no audio track (silent).
+- **Duration**: Exactly 10.000 seconds (900,000 units at 90,000 Hz timescale).
+- **Dimensions & Framerate**: 848x478 (16:9 cinematic aspect ratio), 24.00 fps, 240 frames total.
+- **Visual Action & Framing Sequence**:
+  - `0.0s – 2.0s`: Wide shot in dim moody study. Woman stands at wooden desk with angled light beam, reviewing a paper document.
+  - `2.0s – 4.0s`: Placing document into manila envelope, smoothing it down on the wooden desk surface.
+  - `4.5s – 5.0s`: Cut to tighter medium close-up behind woman's shoulder as she abruptly turns head toward heavy wooden door behind her, alerted by a sound/threat.
+  - `5.0s – 10.0s`: Freezes in place, staring at the wooden door with tense expression, listening intently.
+- **Default Timeline Integration**: `scene_duration_ms` is set to 10,000ms. Cues default to empty (`[]`) so the silent scene remains silent until the director gives creative direction.
+
+---
+
+## 3. Run 3 Implementation Details
+
+### Backend Agent Loop & Tools (`backend/app/agent.py`, `backend/app/tools.py`)
+- **Model**: Pinned to `gemini-3.1-flash-lite` using the official `google-genai` Python SDK (`client.aio.models.generate_content`).
+- **Function Calling Declarations**:
+  - `find_sound_candidates_tool`: Filters ClickHouse `sound_assets` table with `hasAny(tags, [...])`, duration limits, and excluded asset IDs. Normalized output paths to `/demo/*.wav`.
+  - `recall_auditions_tool`: Recalls prior director feedback from ClickHouse `audition_events` table.
+  - `inspect_session_tool`: Reads live Firestore session state and cue layout.
+  - `propose_edit_batch_tool`: Proposes atomic edit operations (`ADD`, `MODIFY`, `REMOVE`).
+- **Safety & Constraint Guards**:
+  - Rejects any edit attempt targeting the protected `dialogue` track (`PROTECTED_TRACK`).
+  - Bounded multi-turn agent loop (maximum 4 model turns) to prevent infinite loops.
+  - Enforces `excluded_asset_ids` so rejected sounds are never proposed again.
+  - Graceful fallback on API quota limits (HTTP 429).
+- **FastAPI Endpoints**:
+  - `POST /api/sessions/{session_id}/direct`: Executes the director agent loop and applies proposed edits atomically via Firestore revision transaction.
+  - `GET /api/catalog/assets`: Fetches active sound assets from ClickHouse.
+  - Static mount: `/demo` maps to `frontend/public/demo` serving audio WAVs and video MP4.
+
+### Frontend Director Console & Workstation (`frontend/src/`)
+- **Master Plan Styling**: Dark-mode palette implemented with `#09090B` background, `#18181B` surface, `#27272A` borders, `#3B82F6` primary accents, and `#FAFAFA` high-contrast typography.
+- **DirectionPanel (`frontend/src/components/DirectionPanel.tsx`)**:
+  - Creative prompt text area with quick suggestions ("Build tension as she freezes", "Subtle floorboard creak before she turns", "Low ominous rumble throughout").
+  - User-supplied scene beats display ("0-4s Desk work; 4.5s Abrupt turn; 5-10s Freeze").
+  - Live Tool Execution feed displaying tool calls and status badges (`find_sound_candidates`, `propose_edit_batch`).
+  - Audition Treatment button triggering Web Audio timeline preview.
+  - Accept Treatment button recording accepted feedback in ClickHouse.
+  - Reject Sound & Re-direct button appending the current asset to exclusions and prompting the agent for alternate choices.
+- **Asset Library (`frontend/src/components/AssetLibrary.tsx`)**:
+  - Searchable sound drawer with tag pills and single-asset preview audition buttons.
+- **Stage (`frontend/src/components/Stage.tsx`)**:
+  - Loads `/demo/scene.mp4` with canvas frame capture sending base64 JPEG keyframes to the agent loop.
+- **Web Audio Preloading (`frontend/src/audio/engine.ts`)**:
+  - `ensureAssetLoaded` dynamically fetches `/demo/*.wav` catalog assets into Web Audio PCM buffers.
 
 ---
 
 ## 4. Automated Verification Results
 
-| Test Suite | Command | Tests Passed | Execution Time |
-| :--- | :--- | :---: | :---: |
-| **Domain Models & Bounds** | pytest tests/test_models_and_constraints.py | 5 / 5 | 1.82s |
-| **Firestore Revision Store** | pytest tests/test_revisions.py | 3 / 3 | 1.79s |
-| **Media Engine & Catalog Seed**| pytest tests/test_media_and_playback.py | 3 / 3 | 4.81s |
-| **Overall Backend Suite** | pytest tests/ | **11 / 11** | **8.42s** |
-| **Frontend Compilation** | 
-pm --prefix frontend run build | **0 errors** | 0.81s |
+| Test Suite | Command | Tests Passed | Execution Time | Result |
+| :--- | :--- | :---: | :---: | :---: |
+| **Agent & ClickHouse MCP** | `pytest tests/test_agent_and_mcp.py` | 5 / 5 | 0.85s | **PASS** |
+| **Media Engine & Math** | `pytest tests/test_media_and_playback.py` | 3 / 3 | 0.92s | **PASS** |
+| **Domain Models & Bounds** | `pytest tests/test_models_and_constraints.py` | 3 / 3 | 0.40s | **PASS** |
+| **Firestore Revision Store** | `pytest tests/test_revisions.py` | 5 / 5 | 0.45s | **PASS** |
+| **Overall Backend Suite** | `pytest tests/` | **16 / 16** | **11.77s** | **ALL PASS** |
+| **Frontend Production Build** | `npm --prefix frontend run build` | **0 errors** | 90s | **PASS (401 kB bundle)** |
 
 ---
 
-## 5. Repository & Deployment Status
+## 5. Component Status Table
 
-- **Git Repository**: Initialized with default branch main.
-- **Remote Origin**: https://github.com/Syedsaadhhh/VoltraPROD.git
-- **Security Check**: Verified that .env, .venv/, rontend/node_modules/, rontend/dist/, and credentials are fully excluded by .gitignore.
-- **Line Endings**: Managed via .gitattributes (	ext=auto eol=lf).
-- **Documentation**: Root README.md and MIT LICENSE created.
-- **Render Ready**: Dockerfile (multi-stage Node 22 + Python 3.12) and 
-ender.yaml Blueprint configured.
-
-### Local Launch Instructions
-`ash
-# 1. Backend Server (serves API and production frontend at http://localhost:8000)
-.venv/Scripts/python.exe -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 2. Frontend Development Server (optional hot-reloading at http://localhost:5173)
-cd frontend && npm run dev
-`
-
-### Render Deployment Instructions
-1. Push the repository to GitHub:
-   `ash
-   git push -u origin main
-   `
-2. Log into the Render Dashboard and create a new **Blueprint Instance**.
-3. Select the VoltraPROD repository.
-4. Provide environment variables in the Render Dashboard:
-   - GOOGLE_API_KEY
-   - CLICKHOUSE_HOST
-   - CLICKHOUSE_PASSWORD
-   - FIREBASE_PROJECT_ID
-   - FIREBASE_CLIENT_EMAIL
-   - FIREBASE_PRIVATE_KEY
-5. Click **Apply**. Render will automatically build the container and start the service with /health verification.
+| Component | Layer | Run Target | Current Status | Verification Method |
+| :--- | :--- | :---: | :---: | :--- |
+| **Gemini Director Agent** | Backend | Run 3 | **Operational** | `gemini-3.1-flash-lite`, function calling declarations, bounded 4-turn loop |
+| **ClickHouse MCP Tooling** | Backend / MCP | Run 3 | **Operational** | `find_sound_candidates`, `recall_auditions`, SQL sanitization verified |
+| **Protected Track Guard** | Backend | Run 3 | **Operational** | Unit tests reject edits to `dialogue` track with `PROTECTED_TRACK` error |
+| **Audition Feedback Loop** | Full Stack | Run 3 | **Operational** | ClickHouse `audition_events` sink, Rejection exclusion memory |
+| **Video Scene Integration** | Full Stack | Run 3 | **Operational** | 10s silent `scene.mp4` mounted at `/demo/scene.mp4`, Stage frame grabber |
+| **Audio Catalog & Engine** | Frontend / Audio | Run 3 | **Operational** | 7 synthesized PCM WAV assets loaded via `AudioEngine.ensureAssetLoaded` |
+| **Dark Mode Workstation UI**| Frontend | Run 3 | **Operational** | Vite production build passing with `#09090B` theme and full director console |
+| **Session Revision Engine** | Backend / Firestore| Run 1 / 3 | **Operational** | Atomic revisions with monotonic increments & concurrency protection |
 
 ---
 
-## 6. Next Action (Resuming for Run 3)
+## 6. Next Step
 
-When resuming for **Run 3 (Chunk 3 — Gemini Agent Loop & ClickHouse Candidate Retrieval)**:
-1. Implement the iterative Gemini ADK agent loop in ackend/app/agent.py supporting autonomous candidate retrieval, scene direction reasoning, and candidate audition generation.
-2. Connect ackend/app/tools.py directly to the mcp-clickhouse client to execute semantic and metadata queries against sound_assets.
-3. Wire director natural-language prompts from DirectionPanel.tsx through to /api/sessions/{id}/direct to generate automated EditBatch revisions.
+**Run 3 is complete.** Per project instructions, stop here without proceeding to Run 4. Run 4 (Production Packaging, Hardening & Render Deployment) will be executed when requested.

@@ -39,7 +39,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   const selectedCue = session.cues.find((c) => c.id === selectedCueId);
 
   return (
-    <div className="card" style={{ padding: '1rem', background: '#0f172a', borderColor: '#1e293b' }}>
+    <div className="card" style={{ padding: '1rem', background: '#18181B', borderColor: '#27272A' }}>
       <div
         style={{
           display: 'flex',
@@ -48,14 +48,15 @@ export const Timeline: React.FC<TimelineProps> = ({
           marginBottom: '0.75rem',
         }}
       >
-        <h2 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#f8fafc' }}>Rehearsal Multi-Track Timeline</h2>
-        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+        <h2 style={{ fontSize: '1.05rem', fontWeight: 600, color: '#FAFAFA' }}>Rehearsal Multi-Track Timeline</h2>
+        <span style={{ fontSize: '0.78rem', color: '#A1A1AA' }}>
           Scene Duration: {(totalMs / 1000).toFixed(1)}s (Revision {session.revision})
         </span>
       </div>
 
       {/* Timeline Ruler & Track Container */}
-      <div style={{ position: 'relative', border: '1px solid #334155', borderRadius: '0.5rem', background: '#020617' }}>
+      <div style={{ position: 'relative', border: '1px solid #27272A', borderRadius: '0.5rem', background: '#09090B' }}>
+
         {/* Ruler Header */}
         <div
           onClick={handleTimelineClick}

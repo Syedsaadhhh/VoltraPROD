@@ -100,6 +100,47 @@ export class AudioEngine {
     return this.bufferCache.get(assetId);
   }
 
+  public async ensureAssetLoaded(assetId: string, sourcePath: string): Promise<AudioBuffer | null> {
+
+    if (this.bufferCache.has(assetId)) {
+      return this.bufferCache.get(assetId)!;
+    }
+    if (!this.ctx) return null;
+
+    try {
+      let url = sourcePath;
+      if (!url.startsWith('http') && !url.startsWith('/')) {
+        url = `/${url}`;
+      }
+      return await this.loadAudio(assetId, url);
+    } catch (err) {
+      console.warn(`Could not load audio for ${assetId} from ${sourcePath}:`, err);
+      return null;
+    }
+  }
+
+  public async preloadSessionCues(
+    cues: Cue[],
+    catalogAssets: { id: string; source_path: string }[] = []
+  ): Promise<void> {
+    const assetPathMap = new Map<string, string>();
+    for (const a of catalogAssets) {
+      assetPathMap.set(a.id, a.source_path);
+    }
+
+    for (const cue of cues) {
+      if (!this.bufferCache.has(cue.asset_id)) {
+        let path = assetPathMap.get(cue.asset_id);
+        if (!path) {
+          const filename = cue.asset_id.replace(/^asset_/, '');
+          path = `/demo/${filename}.wav`;
+        }
+        await this.ensureAssetLoaded(cue.asset_id, path);
+      }
+    }
+  }
+
+
   /**
    * Stops all active source nodes immediately.
    * Prevents duplicate or ghost audio on seek, pause, or edit.

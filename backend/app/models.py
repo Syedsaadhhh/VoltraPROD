@@ -196,3 +196,25 @@ class AuditionFeedback(BaseModel):
     accepted_or_rejected_or_unrated: AuditionDecision
     director_text: Optional[str] = None
     observed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DirectorDirectionRequest(BaseModel):
+    """Request payload from director UI to run AI agent direction loop."""
+    instruction: str = Field(min_length=1, max_length=2000, description="Director creative prompt or revision direction")
+    base_revision: int = Field(ge=0, description="Current session revision expected by client")
+    scene_beats: Optional[str] = Field(default=None, description="User-supplied scene context beats")
+    video_frame_b64: Optional[str] = Field(default=None, description="Optional base64 JPEG from video stage")
+    excluded_asset_ids: Optional[List[str]] = Field(default_factory=list, description="Assets to exclude from candidate search")
+
+
+class DirectorDirectionResponse(BaseModel):
+    """Response returned to director UI containing agent actions and resulting session."""
+    status: str
+    action_summary: str
+    rationale: str
+    revision: int
+    tool_traces: List[Dict[str, Any]] = Field(default_factory=list)
+    batch_result: Optional[ToolResult] = None
+    updated_session: Optional[Session] = None
+    error: Optional[str] = None
+

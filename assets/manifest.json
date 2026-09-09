@@ -1,0 +1,114 @@
+{
+  "assets": [
+    {
+      "id": "asset_ambient_wind_hollow_01",
+      "source_path": "demo/ambient_wind_hollow_01.wav",
+      "sha256": "4f629ae6bc4703a530f4beef4dd852fda6ae3c44da559261d99eefcd128e69a9",
+      "duration_ms": 8000,
+      "sample_rate": 44100,
+      "channels": 2,
+      "tags": [
+        "ambience",
+        "atmosphere",
+        "sfx"
+      ],
+      "source_description": "Recording: ambient_wind_hollow_01",
+      "rights_note": "User Provided / Public Domain",
+      "available": true
+    },
+    {
+      "id": "asset_cloth_rustle_jacket_01",
+      "source_path": "demo/cloth_rustle_jacket_01.wav",
+      "sha256": "5cf7f0edd933d5558263fed35df0579c716a7f7525a940145417fc2350cdccfa",
+      "duration_ms": 2000,
+      "sample_rate": 44100,
+      "channels": 2,
+      "tags": [
+        "cloth",
+        "foley",
+        "sfx"
+      ],
+      "source_description": "Recording: cloth_rustle_jacket_01",
+      "rights_note": "User Provided / Public Domain",
+      "available": true
+    },
+    {
+      "id": "asset_dialogue_hero_01",
+      "source_path": "demo/dialogue_hero_01.wav",
+      "sha256": "86d0d3467d7441cc121714391503818ddcc4f08a297abbe8a9561e04aab6e490",
+      "duration_ms": 4000,
+      "sample_rate": 44100,
+      "channels": 2,
+      "tags": [
+        "sfx"
+      ],
+      "source_description": "Recording: dialogue_hero_01",
+      "rights_note": "User Provided / Public Domain",
+      "available": true
+    },
+    {
+      "id": "asset_door_creak_slow_01",
+      "source_path": "demo/door_creak_slow_01.wav",
+      "sha256": "5d2c9a04f33709bc2f5f4d8692be4b8890176ad20491c907bee889452c6e8a0a",
+      "duration_ms": 2500,
+      "sample_rate": 44100,
+      "channels": 2,
+      "tags": [
+        "door",
+        "foley",
+        "sfx"
+      ],
+      "source_description": "Recording: door_creak_slow_01",
+      "rights_note": "User Provided / Public Domain",
+      "available": true
+    },
+    {
+      "id": "asset_footsteps_concrete_01",
+      "source_path": "demo/footsteps_concrete_01.wav",
+      "sha256": "e44190b462214f5bfeb47ddb008fac3782d53da6eb7873912fafcd424863d87b",
+      "duration_ms": 3000,
+      "sample_rate": 44100,
+      "channels": 2,
+      "tags": [
+        "foley",
+        "footsteps",
+        "sfx",
+        "surface:concrete"
+      ],
+      "source_description": "Recording: footsteps_concrete_01",
+      "rights_note": "User Provided / Public Domain",
+      "available": true
+    },
+    {
+      "id": "asset_footsteps_wood_01",
+      "source_path": "demo/footsteps_wood_01.wav",
+      "sha256": "255f151cabf26f83f5ee0916fe4338d76ec2bcbbeb84435f98e3976f9898adc7",
+      "duration_ms": 3000,
+      "sample_rate": 44100,
+      "channels": 2,
+      "tags": [
+        "foley",
+        "footsteps",
+        "sfx",
+        "surface:wood"
+      ],
+      "source_description": "Recording: footsteps_wood_01",
+      "rights_note": "User Provided / Public Domain",
+      "available": true
+    },
+    {
+      "id": "asset_tense_drone_low_01",
+      "source_path": "demo/tense_drone_low_01.wav",
+      "sha256": "bf75d58503be87037f3288f428f87299b184a912d5c9886a782e7a67f5556cd3",
+      "duration_ms": 6000,
+      "sample_rate": 44100,
+      "channels": 2,
+      "tags": [
+        "sfx"
+      ],
+      "source_description": "Recording: tense_drone_low_01",
+      "rights_note": "User Provided / Public Domain",
+      "available": true
+    }
+  ]
+}

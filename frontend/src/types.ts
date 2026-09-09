@@ -126,3 +126,30 @@ export interface SystemStatusResponse {
     };
   };
 }
+
+export interface DirectorDirectionRequest {
+  instruction: string;
+  base_revision: number;
+  scene_beats?: string;
+  video_frame_b64?: string;
+  excluded_asset_ids?: string[];
+}
+
+export interface ToolTrace {
+  tool: string;
+  summary: string;
+  status: string;
+  candidates_count?: number;
+}
+
+export interface DirectorDirectionResponse {
+  status: 'success' | 'quota_exceeded' | 'mcp_error' | 'error';
+  action_summary: string;
+  rationale: string;
+  revision: number;
+  tool_traces: ToolTrace[];
+  batch_result?: ToolResult;
+  updated_session?: Session;
+  error?: string;
+}
+
